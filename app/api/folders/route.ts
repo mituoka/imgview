@@ -2,8 +2,9 @@ import fs from "fs";
 import path from "path";
 import { FolderInfo, getFolderLabel } from "@/types";
 
-import { getImagesDir } from "@/lib/config";
+import { getImagesDir, getExcludedFolders } from "@/lib/config";
 const IMAGES_ROOT = getImagesDir();
+const EXCLUDED_FOLDERS = getExcludedFolders();
 const IMAGE_EXTENSIONS = new Set([
   ".jpg",
   ".jpeg",
@@ -51,6 +52,7 @@ export async function GET() {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (entry.name.startsWith(".")) continue;
+    if (EXCLUDED_FOLDERS.has(entry.name)) continue;
 
     const folderPath = path.join(IMAGES_ROOT, entry.name);
     const count = countImagesInDir(folderPath);

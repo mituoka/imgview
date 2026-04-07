@@ -7,3 +7,11 @@ export function getImagesDir(): string {
   }
   return path.resolve(dir);
 }
+
+/** カンマ区切りの EXCLUDED_FOLDERS から除外フォルダ名のSetを返す */
+export function getExcludedFolders(): Set<string> {
+  const raw = process.env.EXCLUDED_FOLDERS ?? "";
+  return new Set(
+    raw.split(",").map((s) => s.trim()).filter(Boolean)
+  );
+}
