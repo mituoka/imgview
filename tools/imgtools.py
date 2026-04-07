@@ -29,7 +29,7 @@ import requests
 from PIL import Image
 
 # ─── 設定 ───────────────────────────────────────────────
-BASE_DIR = Path.home() / "dev" / "images"
+BASE_DIR = Path(os.environ.get("IMAGES_DIR", str(Path.home() / "dev" / "images")))
 DOWNLOAD_DIR = Path.home() / "dev" / "download"  # 固定のダウンロードフォルダ
 CACHE_FILE = BASE_DIR / ".imgtools_cache.json"
 OLLAMA_URL = "http://localhost:11434"

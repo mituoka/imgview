@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
       const proc = spawn(PYTHON, [SCRIPT, command], {
         cwd: path.dirname(SCRIPT),
-        env: { ...process.env, PATH: `${path.join(TOOLS_DIR, ".venv/bin")}:${process.env.PATH}` },
+        env: { ...process.env, PATH: `${path.join(TOOLS_DIR, ".venv/bin")}:${process.env.PATH}`, IMAGES_DIR: process.env.IMAGES_DIR ?? "" },
       });
 
       proc.stdout.setEncoding("utf-8");

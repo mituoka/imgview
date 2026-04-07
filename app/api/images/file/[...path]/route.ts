@@ -2,9 +2,11 @@ import { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
 
-const CACHE_FILE = "/Users/mitsuokatomohiro/dev/images/.imgtools_cache.json";
 
-const IMAGES_ROOT = "/Users/mitsuokatomohiro/dev/images";
+
+import { getImagesDir } from "@/lib/config";
+const IMAGES_ROOT = getImagesDir();
+const CACHE_FILE = path.join(IMAGES_ROOT, ".imgtools_cache.json");
 
 const MIME_TYPES: Record<string, string> = {
   ".jpg": "image/jpeg",

@@ -3,7 +3,8 @@ import fs from "fs";
 import path from "path";
 import { ImageItem } from "@/types";
 
-const IMAGES_ROOT = "/Users/mitsuokatomohiro/dev/images";
+import { getImagesDir } from "@/lib/config";
+const IMAGES_ROOT = getImagesDir();
 const CACHE_FILE = path.join(IMAGES_ROOT, ".imgtools_cache.json");
 const IMAGE_EXTENSIONS = new Set([
   ".jpg",

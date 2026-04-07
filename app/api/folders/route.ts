@@ -2,7 +2,8 @@ import fs from "fs";
 import path from "path";
 import { FolderInfo, getFolderLabel } from "@/types";
 
-const IMAGES_ROOT = "/Users/mitsuokatomohiro/dev/images";
+import { getImagesDir } from "@/lib/config";
+const IMAGES_ROOT = getImagesDir();
 const IMAGE_EXTENSIONS = new Set([
   ".jpg",
   ".jpeg",

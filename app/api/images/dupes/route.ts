@@ -3,7 +3,8 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 
-const IMAGES_ROOT = "/Users/mitsuokatomohiro/dev/images";
+import { getImagesDir } from "@/lib/config";
+const IMAGES_ROOT = getImagesDir();
 const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".heic", ".svg"]);
 
 function findImages(dir: string): string[] {
