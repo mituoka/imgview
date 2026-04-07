@@ -28,3 +28,8 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #4b5563;
 }
+
+@keyframes progress {
+  from { width: 0; }
+  to { width: 100%; }
+}

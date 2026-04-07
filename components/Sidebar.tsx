@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState, useCallback } from "react";
 import { FolderInfo } from "@/types";
 import RunImgtoolsPanel from "@/components/RunImgtoolsPanel";
 
@@ -12,6 +13,54 @@ type Props = {
   loading: boolean;
   onRefresh: () => void;
 };
+
+function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
+  const [running, setRunning] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchStatus = useCallback(() => {
+    fetch("/api/watcher")
+      .then((r) => r.json())
+      .then((d) => setRunning(d.running))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const id = setInterval(fetchStatus, 10000);
+    return () => clearInterval(id);
+  }, [fetchStatus]);
+
+  const toggle = async () => {
+    setLoading(true);
+    await fetch("/api/watcher", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: running ? "stop" : "start" }),
+    });
+    await new Promise((r) => setTimeout(r, 600));
+    fetchStatus();
+    if (!running) onRefresh();
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={loading}
+      className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors disabled:opacity-50 ${
+        running
+          ? "text-green-400 hover:bg-gray-800"
+          : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+      }`}
+    >
+      <span className={`text-base ${running ? "animate-pulse" : ""}`}>
+        {running ? "🟢" : "📥"}
+      </span>
+      <span>{running ? "監視中..." : "自動取り込み"}</span>
+    </button>
+  );
+}
 
 export default function Sidebar({
   folders,
@@ -33,10 +82,7 @@ export default function Sidebar({
         {loading ? (
           <div className="space-y-1">
             {[...Array(6)].map((_, i) => (
-              <div
-                key={i}
-                className="h-8 bg-gray-800 rounded animate-pulse"
-              />
+              <div key={i} className="h-8 bg-gray-800 rounded animate-pulse" />
             ))}
           </div>
         ) : (
@@ -51,13 +97,9 @@ export default function Sidebar({
                 }`}
               >
                 <span>All</span>
-                <span
-                  className={`text-xs px-1.5 py-0.5 rounded-full ${
-                    selectedFolder === null
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-700 text-gray-400"
-                  }`}
-                >
+                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                  selectedFolder === null ? "bg-blue-500 text-white" : "bg-gray-700 text-gray-400"
+                }`}>
                   {totalCount}
                 </span>
               </button>
@@ -74,13 +116,9 @@ export default function Sidebar({
                   }`}
                 >
                   <span className="truncate text-left">{folder.label}</span>
-                  <span
-                    className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1 ${
-                      selectedFolder === folder.name
-                        ? "bg-blue-500 text-white"
-                        : "bg-gray-700 text-gray-400"
-                    }`}
-                  >
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full flex-shrink-0 ml-1 ${
+                    selectedFolder === folder.name ? "bg-blue-500 text-white" : "bg-gray-700 text-gray-400"
+                  }`}>
                     {folder.count}
                   </span>
                 </button>
@@ -91,6 +129,7 @@ export default function Sidebar({
       </nav>
 
       <div className="p-2 pb-10 border-t border-gray-800 space-y-1">
+        <WatcherButton onRefresh={onRefresh} />
         <Link
           href="/cleanup"
           className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors"

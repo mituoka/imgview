@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { ImageItem, FolderInfo } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
+import Toolbar, { SortKey, SortDir } from "@/components/Toolbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+
+function sortImages(images: ImageItem[], key: SortKey, dir: SortDir): ImageItem[] {
+  return [...images].sort((a, b) => {
+    let v = 0;
+    if (key === "mtime") v = a.mtime - b.mtime;
+    else if (key === "size") v = a.size - b.size;
+    else v = a.filename.localeCompare(b.filename, "ja");
+    return dir === "desc" ? -v : v;
+  });
+}
 
 export default function Home() {
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -18,60 +29,68 @@ export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<ImageItem | null>(null);
 
-  const handleRefresh = useCallback(() => {
-    setRefreshKey((k) => k + 1);
-  }, []);
+  // ツールバー状態
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("mtime");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [columns, setColumns] = useState(3);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
-  // Fetch folders
+  const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+
   useEffect(() => {
     setLoadingFolders(true);
     fetch(`${API_BASE}/api/folders`)
-      .then((res) => res.json())
+      .then((r) => r.json())
       .then((data: FolderInfo[]) => setFolders(data))
       .catch(console.error)
       .finally(() => setLoadingFolders(false));
   }, [refreshKey]);
 
-  // Fetch images when folder changes or refresh
   useEffect(() => {
     setLoadingImages(true);
-    const url =
-      selectedFolder != null
-        ? `${API_BASE}/api/images?folder=${encodeURIComponent(selectedFolder)}`
-        : `${API_BASE}/api/images`;
-
+    const url = selectedFolder != null
+      ? `${API_BASE}/api/images?folder=${encodeURIComponent(selectedFolder)}`
+      : `${API_BASE}/api/images`;
     fetch(url)
-      .then((res) => res.json())
+      .then((r) => r.json())
       .then((data: ImageItem[]) => setImages(data))
       .catch(console.error)
       .finally(() => setLoadingImages(false));
   }, [selectedFolder, refreshKey]);
 
+  // 選択モード終了時にクリア
+  useEffect(() => {
+    if (!selectMode) setSelectedPaths(new Set());
+  }, [selectMode]);
+
+  // フィルタ + ソート済み画像
+  const filteredImages = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const filtered = q
+      ? images.filter(
+          (img) =>
+            img.filename.toLowerCase().includes(q) ||
+            img.folder.toLowerCase().includes(q) ||
+            (img.category ?? "").toLowerCase().includes(q)
+        )
+      : images;
+    return sortImages(filtered, sortKey, sortDir);
+  }, [images, search, sortKey, sortDir]);
+
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
 
-  const handleImageClick = useCallback((index: number) => {
-    setLightboxIndex(index);
-  }, []);
-
-  const handleLightboxClose = useCallback(() => {
-    setLightboxIndex(null);
-  }, []);
-
+  const handleImageClick = useCallback((index: number) => setLightboxIndex(index), []);
+  const handleLightboxClose = useCallback(() => setLightboxIndex(null), []);
   const handleLightboxPrev = useCallback(() => {
-    setLightboxIndex((prev) =>
-      prev === null ? null : prev > 0 ? prev - 1 : images.length - 1
-    );
-  }, [images.length]);
-
+    setLightboxIndex((p) => p === null ? null : p > 0 ? p - 1 : filteredImages.length - 1);
+  }, [filteredImages.length]);
   const handleLightboxNext = useCallback(() => {
-    setLightboxIndex((prev) =>
-      prev === null ? null : prev < images.length - 1 ? prev + 1 : 0
-    );
-  }, [images.length]);
+    setLightboxIndex((p) => p === null ? null : p < filteredImages.length - 1 ? p + 1 : 0);
+  }, [filteredImages.length]);
 
-  const handleDeleteRequest = useCallback((image: ImageItem) => {
-    setConfirmDelete(image);
-  }, []);
+  const handleDeleteRequest = useCallback((image: ImageItem) => setConfirmDelete(image), []);
 
   const handleDeleteConfirm = useCallback(async () => {
     if (!confirmDelete) return;
@@ -84,6 +103,32 @@ export default function Home() {
     setImages((prev) => prev.filter((img) => img.path !== p));
     setRefreshKey((k) => k + 1);
   }, [confirmDelete]);
+
+  const handleToggleSelect = useCallback((image: ImageItem) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      next.has(image.path) ? next.delete(image.path) : next.add(image.path);
+      return next;
+    });
+  }, []);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedPaths.size === 0) return;
+    if (!confirm(`${selectedPaths.size}枚の画像を削除しますか？`)) return;
+    for (const p of selectedPaths) {
+      await fetch(`${API_BASE}/api/images/file/${encodeURIComponent(p).replace(/%2F/g, "/")}`, {
+        method: "DELETE",
+      });
+    }
+    setSelectedPaths(new Set());
+    setSelectMode(false);
+    setRefreshKey((k) => k + 1);
+  }, [selectedPaths]);
+
+  const handleSortChange = useCallback((key: SortKey, dir: SortDir) => {
+    setSortKey(key);
+    setSortDir(dir);
+  }, []);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -98,32 +143,50 @@ export default function Home() {
 
       <main className="flex-1 overflow-y-auto">
         <div className="p-4">
-          <div className="mb-4 flex items-center gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-100">
               {selectedFolder ?? "All"}
             </h1>
             {!loadingImages && (
               <span className="text-sm text-gray-400">
-                {images.length} images
+                {filteredImages.length}{search ? ` / ${images.length}` : ""} images
               </span>
             )}
           </div>
 
+          <Toolbar
+            search={search}
+            onSearchChange={setSearch}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onSortChange={handleSortChange}
+            columns={columns}
+            onColumnsChange={setColumns}
+            selectMode={selectMode}
+            selectedCount={selectedPaths.size}
+            onToggleSelectMode={() => setSelectMode((v) => !v)}
+            onBulkDelete={handleBulkDelete}
+          />
+
           <ImageGrid
-            images={images}
+            images={filteredImages}
             loading={loadingImages}
+            columns={columns}
+            selectMode={selectMode}
+            selectedPaths={selectedPaths}
             onImageClick={handleImageClick}
             onDelete={handleDeleteRequest}
+            onToggleSelect={handleToggleSelect}
             apiBase={API_BASE}
           />
         </div>
       </main>
 
-      {lightboxIndex !== null && images[lightboxIndex] && (
+      {lightboxIndex !== null && filteredImages[lightboxIndex] && (
         <Lightbox
-          image={images[lightboxIndex]}
+          image={filteredImages[lightboxIndex]}
           index={lightboxIndex}
-          total={images.length}
+          total={filteredImages.length}
           apiBase={API_BASE}
           onClose={handleLightboxClose}
           onPrev={handleLightboxPrev}
@@ -132,7 +195,6 @@ export default function Home() {
         />
       )}
 
-      {/* 削除確認ダイアログ */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70">
           <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-2xl">
