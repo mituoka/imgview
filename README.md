@@ -1,37 +1,41 @@
 # imgview
 
-ローカル画像ライブラリをブラウザで閲覧・管理する Web アプリ。Instagram ライクなグリッド表示、AI自動分類、重複検出、不要画像の削除に対応。
+Local image library viewer with AI-powered classification, duplicate detection, and cleanup tools.
 
-## スクリーンショット
+---
 
-| グリッドビュー | クリーンアップ |
+## Features
+
+| | |
 |---|---|
-| フォルダ別サイドナビ + 3カラムグリッド | 重複検出 / AI品質チェック |
+| Grid view | Folder navigation, hover overlay, variable column count (2–5) |
+| Lightbox | Full-size display, arrow key / ESC navigation, slideshow mode |
+| Search & sort | Filter by filename / folder / category, sort by date / size / name |
+| Multi-select | Select multiple images, bulk delete |
+| Cleanup | Duplicate detection (MD5 hash), AI quality flagging |
+| imgtools | One-click execution from sidebar with real-time log streaming |
+| Auto import | File watcher daemon monitors download folder and imports automatically |
 
-## 機能
+---
 
-- **グリッドビュー** — フォルダ別フィルタ、ホバーでファイル情報表示
-- **ライトボックス** — フルサイズ表示、←→キー / ESC ナビゲーション
-- **削除** — グリッドホバー / ライトボックスから確認ダイアログ付きで削除
-- **imgtools 実行** — サイドバーからワンクリックでバックグラウンド実行、ログをリアルタイム表示
-- **クリーンアップページ** — 重複検出（MD5）と AI品質チェック結果の一括削除
+## Stack
 
-## 技術スタック
+- **Next.js 14** — App Router, TypeScript, Tailwind CSS
+- **Ollama** `llava:7b` — local AI vision model for classification and quality check
+- **Python** — `tools/imgtools.py` for image management CLI
+- **API** — Next.js Route Handlers (swappable with Rust/Axum backend)
 
-- **Frontend**: Next.js 14 (App Router) + TypeScript + Tailwind CSS
-- **API**: Next.js Route Handlers（将来的に Rust/Axum へ差し替え可能）
-- **AI**: Ollama `llava:7b`（ローカル実行）
-- **Python ツール**: `tools/imgtools.py`（画像分類・整理 CLI）
+---
 
-## セットアップ
+## Setup
 
-### 1. 依存関係のインストール
+**1. Install dependencies**
 
 ```bash
 npm install
 ```
 
-### 2. Python 環境のセットアップ
+**2. Set up Python environment**
 
 ```bash
 cd tools
@@ -39,105 +43,115 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-### 3. 環境変数の設定
-
-`.env.local` を作成:
+**3. Configure environment**
 
 ```bash
 cp .env.example .env.local
 ```
 
-`.env.local` を編集:
-
 ```env
-# 画像ディレクトリの絶対パス
+# Absolute path to your image library
 IMAGES_DIR=/path/to/your/images
 
-# Rust/Axum バックエンドに切り替える場合（空 = Next.js API を使用）
+# Folders to exclude from the viewer (comma-separated)
+# EXCLUDED_FOLDERS=screenshot,other
+
+# Leave empty to use built-in Next.js API routes
+# Set to Rust/Axum backend URL when switching
 NEXT_PUBLIC_API_BASE_URL=
 ```
 
-### 4. 起動
+**4. Start**
 
 ```bash
 npm run dev
 ```
 
-[http://localhost:3000](http://localhost:3000) を開く。
+Open [http://localhost:3000](http://localhost:3000).
 
-## 画像ディレクトリ
+---
 
-`IMAGES_DIR` に絶対パスで任意のディレクトリを指定するだけで動作します。サブフォルダは `imgtools.py` の AI 分類・整理機能によって自動的に作成されます。
+## imgtools CLI
 
-### 対応フォーマット
-
-`.jpg` / `.jpeg` / `.png` / `.gif` / `.webp` / `.bmp` / `.tiff` / `.heic` / `.svg`
-
-## imgtools
-
-`tools/imgtools.py` は画像ライブラリを管理する Python CLI です。Web UI のサイドバーから実行するか、ターミナルから直接呼び出せます。
+`tools/imgtools.py` manages the image library. Run from the sidebar or directly in terminal.
 
 ```bash
-cd tools
-source .venv/bin/activate
+cd tools && source .venv/bin/activate
 
-python imgtools.py scan        # 画像の統計・概要を表示
-python imgtools.py classify    # Ollama で未分類画像をAI分類
-python imgtools.py quality     # ブレ・低品質画像をAIで検出
-python imgtools.py organize    # 分類結果に基づいてフォルダ整理
-python imgtools.py auto        # 全自動: 取込 → 分類 → 整理
-python imgtools.py dupes       # 重複画像を検出
-python imgtools.py stats       # 分類結果の統計
+python imgtools.py scan        # show library stats
+python imgtools.py classify    # AI classification with Ollama
+python imgtools.py quality     # detect blurry / low-quality images
+python imgtools.py organize    # move files into category folders
+python imgtools.py auto        # full pipeline: import → classify → organize
+python imgtools.py dupes       # find duplicate images
+python imgtools.py stats       # classification statistics
 ```
 
-### AI分類のカテゴリ
+**AI categories**
 
-| カテゴリ名 | 内容 |
+| key | description |
 |---|---|
-| `anime_illustration` | アニメ・マンガ・イラスト・VTuber |
-| `photo_people` | 人物写真・ポートレート |
-| `photo_landscape` | 風景・自然・建物 |
-| `photo_food` | 食べ物・飲み物 |
-| `photo_object` | 物撮り・商品写真 |
-| `screenshot` | スクリーンショット・UI |
-| `meme_funny` | ミーム・面白画像 |
-| `document` | ドキュメント・テキスト画像 |
-| `artwork` | デジタルアート・絵画 |
-| `other` | その他 |
+| `anime_illustration` | anime, manga, illustration, VTuber |
+| `photo_people` | portraits, selfies |
+| `photo_landscape` | scenery, nature, buildings |
+| `photo_food` | food and drinks |
+| `photo_object` | products, objects |
+| `screenshot` | screen captures, UI |
+| `meme_funny` | memes, reaction images |
+| `document` | text documents, notes |
+| `artwork` | digital art, paintings |
+| `other` | uncategorized |
 
-### AI機能の前提条件（Ollama）
+**Requires Ollama**
 
 ```bash
-# Ollama のインストール: https://ollama.com
 ollama pull llava:7b
 ollama serve
 ```
 
-分類・品質チェックは Ollama が起動していない場合スキップされます。
+Classification is skipped gracefully when Ollama is not running.
 
-## API エンドポイント
+---
 
-| メソッド | パス | 説明 |
+## Auto Import
+
+The watcher daemon monitors the download folder and triggers `imgtools auto` when new images arrive.
+
+Start / stop from the sidebar, or run manually:
+
+```bash
+python tools/watcher.py
+```
+
+---
+
+## API Reference
+
+| Method | Path | Description |
 |---|---|---|
-| `GET` | `/api/images` | 画像一覧（`?folder=` でフィルタ） |
-| `GET` | `/api/images/file/[...path]` | 画像ファイル配信 |
-| `DELETE` | `/api/images/file/[...path]` | 画像ファイル削除 |
-| `GET` | `/api/folders` | フォルダ一覧と枚数 |
-| `GET` | `/api/images/dupes` | 重複画像グループ |
-| `GET` | `/api/images/quality` | AI品質チェック結果 |
-| `POST` | `/api/run-imgtools` | imgtools コマンド実行（SSE ストリーミング） |
+| `GET` | `/api/images` | list images (`?folder=` filter) |
+| `GET` | `/api/images/file/[...path]` | serve image file |
+| `DELETE` | `/api/images/file/[...path]` | delete image file |
+| `GET` | `/api/folders` | folder list with counts |
+| `GET` | `/api/images/dupes` | duplicate image groups |
+| `GET` | `/api/images/quality` | AI quality check results |
+| `POST` | `/api/run-imgtools` | run imgtools command (SSE streaming) |
+| `GET` | `/api/watcher` | watcher daemon status |
+| `POST` | `/api/watcher` | start / stop watcher daemon |
 
-## 将来の拡張（Rust バックエンド）
+---
 
-AI 検索・類似画像検索など重い処理を追加する際は、Rust + Axum バックエンドに差し替え可能な設計になっています。
+## Rust Backend
 
-`.env.local` の `NEXT_PUBLIC_API_BASE_URL` に Axum サーバーの URL を設定するだけで切り替えられます。
+Designed to swap the Next.js API routes for a Rust/Axum backend when heavier processing is needed (vector search, batch AI, etc.).
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8702
 ```
 
-## セキュリティ
+---
 
-- 画像配信・削除 API はパストラバーサル対策済み（`IMAGES_DIR` 外へのアクセスは 403）
-- `POST /api/run-imgtools` は許可コマンドのみ実行（`scan` / `classify` / `quality` / `auto`）
+## Security
+
+- Path traversal protection on all file API routes — requests outside `IMAGES_DIR` return 403
+- `POST /api/run-imgtools` executes only allowlisted commands: `scan`, `classify`, `quality`, `auto`
