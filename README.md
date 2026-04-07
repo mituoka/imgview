@@ -65,26 +65,9 @@ npm run dev
 
 [http://localhost:3000](http://localhost:3000) を開く。
 
-## 画像ディレクトリ構造
+## 画像ディレクトリ
 
-`IMAGES_DIR` に指定したディレクトリは以下の構造を想定しています。
-
-```
-images/
-├── anime_illustration/   # アニメ・イラスト
-├── artwork/              # アートワーク・デジタルアート
-├── design/               # デザイン素材
-├── meme_funny/           # ミーム・面白画像
-├── other/                # その他
-├── photo_people/         # 人物写真
-├── screenshot/           # スクリーンショット
-├── photo_landscape/      # 風景写真（imgtools で自動作成）
-├── photo_food/           # 食べ物写真（imgtools で自動作成）
-├── photo_object/         # 物撮り写真（imgtools で自動作成）
-└── .imgtools_cache.json  # AI分類・品質チェック結果のキャッシュ
-```
-
-サブディレクトリは `imgtools.py classify → organize` で自動作成されます。任意のフォルダ構成でも動作します。
+`IMAGES_DIR` に絶対パスで任意のディレクトリを指定するだけで動作します。サブフォルダは `imgtools.py` の AI 分類・整理機能によって自動的に作成されます。
 
 ### 対応フォーマット
 
