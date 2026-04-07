@@ -51,12 +51,15 @@ function Thumbnail({
   };
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleClick}
-      className={`relative aspect-square bg-gray-800 overflow-hidden group focus:outline-none ${
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
+      className={`relative aspect-square bg-gray-800 overflow-hidden group cursor-pointer outline-none ${
         selectMode && selected
           ? "ring-2 ring-blue-500"
-          : "focus:ring-2 focus:ring-blue-500"
+          : "focus-visible:ring-2 focus-visible:ring-blue-500"
       }`}
     >
       {!error ? (
@@ -106,7 +109,7 @@ function Thumbnail({
           </div>
         </div>
       )}
-    </button>
+    </div>
   );
 }
 

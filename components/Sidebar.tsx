@@ -54,9 +54,7 @@ function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
           : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
       }`}
     >
-      <span className={`text-base ${running ? "animate-pulse" : ""}`}>
-        {running ? "🟢" : "📥"}
-      </span>
+      {running && <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />}
       <span>{running ? "監視中..." : "自動取り込み"}</span>
     </button>
   );
@@ -134,8 +132,7 @@ export default function Sidebar({
           href="/cleanup"
           className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors"
         >
-          <span className="text-base">🗑️</span>
-          <span>クリーンアップ</span>
+          クリーンアップ
         </Link>
         <RunImgtoolsPanel onComplete={onRefresh} />
       </div>
