@@ -65,14 +65,30 @@ CATEGORY_LABELS = {
 
 
 # ─── ユーティリティ ─────────────────────────────────────
-def find_images(target_dir: Path = BASE_DIR, recursive: bool = True) -> list[Path]:
-    """画像ファイルを探す"""
+def find_images(target_dir: Path = BASE_DIR, recursive: bool = True,
+                include_download: bool = False) -> list[Path]:
+    """画像ファイルを探す。include_download=True で DOWNLOAD_DIR も対象にする"""
+    dirs = [target_dir]
+    if include_download and DOWNLOAD_DIR.exists() and DOWNLOAD_DIR != target_dir:
+        dirs.append(DOWNLOAD_DIR)
+
     images = []
-    pattern = "**/*" if recursive else "*"
-    for p in target_dir.glob(pattern):
-        if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith("."):
-            images.append(p)
+    for d in dirs:
+        if not d.exists():
+            continue
+        pattern = "**/*" if recursive else "*"
+        for p in d.glob(pattern):
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS and not p.name.startswith("."):
+                images.append(p)
     return sorted(images)
+
+
+def get_cache_key(img: Path) -> str:
+    """キャッシュキーを返す。BASE_DIR 外の画像は 'download/<name>' 形式"""
+    try:
+        return str(img.relative_to(BASE_DIR))
+    except ValueError:
+        return f"download/{img.name}"
 
 
 def format_size(size_bytes: int) -> str:
@@ -168,7 +184,8 @@ Category:"""
 def cmd_scan(args):
     """画像の概要を表示"""
     target_dir = Path(args.source).resolve() if args.source else BASE_DIR
-    images = find_images(target_dir)
+    include_dl = getattr(args, "include_download", False)
+    images = find_images(target_dir, include_download=include_dl)
 
     if not images:
         print("画像が見つかりませんでした。")
@@ -185,7 +202,10 @@ def cmd_scan(args):
         total_size += size
         sizes.append(size)
         by_ext[img.suffix.lower()] += 1
-        folder = img.parent.relative_to(BASE_DIR)
+        try:
+            folder = img.parent.relative_to(BASE_DIR)
+        except ValueError:
+            folder = Path("download")
         by_folder[str(folder)] += 1
 
     print(f"\n{'=' * 50}")
@@ -224,7 +244,8 @@ def cmd_scan(args):
 
 def cmd_dupes(args):
     """重複画像を検出"""
-    images = find_images()
+    include_dl = getattr(args, "include_download", False)
+    images = find_images(include_download=include_dl)
     print(f"\n{len(images)} 画像をスキャン中...")
 
     hash_map = defaultdict(list)
@@ -248,8 +269,7 @@ def cmd_dupes(args):
         total_waste += waste
         print(f"  [{format_size(size)}] ({len(paths)} copies)")
         for p in paths:
-            rel = p.relative_to(BASE_DIR)
-            print(f"    - {rel}")
+            print(f"    - {get_cache_key(p)}")
         print()
 
     print(f"重複による無駄な容量: {format_size(total_waste)}")
@@ -270,24 +290,26 @@ def cmd_classify(args):
         return
 
     # ソースディレクトリの決定
+    include_dl = getattr(args, "include_download", False)
     if args.source:
         target = Path(args.source).resolve()
+        images = find_images(target)
     elif args.folder:
         target = BASE_DIR / args.folder
+        images = find_images(target)
     else:
-        target = BASE_DIR
+        images = find_images(BASE_DIR, include_download=include_dl)
 
-    if not target.exists():
-        print(f"Error: ディレクトリ '{target}' が見つかりません。")
+    if not images:
+        print("画像が見つかりませんでした。")
         return
 
-    images = find_images(target)
     cache = load_cache()
 
     # 未分類のみ
     if not args.force:
-        images = [img for img in images if str(img.relative_to(BASE_DIR)) not in cache
-                  or "category" not in cache.get(str(img.relative_to(BASE_DIR)), {})]
+        images = [img for img in images if get_cache_key(img) not in cache
+                  or "category" not in cache.get(get_cache_key(img), {})]
 
     if not images:
         print("分類する画像がありません（すべて分類済み）。--force で再分類できます。")
@@ -296,7 +318,7 @@ def cmd_classify(args):
     print(f"\n{len(images)} 画像を分類中... (model: {VISION_MODEL})\n")
 
     for i, img in enumerate(images):
-        rel = str(img.relative_to(BASE_DIR))
+        rel = get_cache_key(img)
         print(f"  [{i + 1}/{len(images)}] {img.name} ... ", end="", flush=True)
 
         try:
@@ -730,11 +752,12 @@ def cmd_quality(args):
         print("Error: Ollama サーバーに接続できません。'ollama serve' を実行してください。")
         return
 
-    images = find_images(BASE_DIR)
+    include_dl = getattr(args, "include_download", False)
+    images = find_images(BASE_DIR, include_download=include_dl)
     cache = load_cache()
 
     if not args.force:
-        images = [img for img in images if "quality_ok" not in cache.get(str(img.relative_to(BASE_DIR)), {})]
+        images = [img for img in images if "quality_ok" not in cache.get(get_cache_key(img), {})]
 
     if not images:
         print("チェックする画像がありません（すべて判定済み）。--force で再判定できます。")
@@ -744,7 +767,7 @@ def cmd_quality(args):
 
     flagged = 0
     for i, img in enumerate(images):
-        rel = str(img.relative_to(BASE_DIR))
+        rel = get_cache_key(img)
         print(f"  [{i + 1}/{len(images)}] {img.name} ... ", end="", flush=True)
 
         try:
@@ -833,16 +856,22 @@ def main():
 
     # scan コマンド
     p_scan = sub.add_parser("scan", help="画像の概要を表示")
-    p_scan.add_argument("--source", help="スキャン対象ディレクトリ（デフォルト: カレント）")
+    p_scan.add_argument("--source", help="スキャン対象ディレクトリ（デフォルト: IMAGES_DIR）")
+    p_scan.add_argument("--include-download", action="store_true",
+                        help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
 
     # dupes コマンド
-    sub.add_parser("dupes", help="重複画像を検出")
+    p_dupes = sub.add_parser("dupes", help="重複画像を検出")
+    p_dupes.add_argument("--include-download", action="store_true",
+                         help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
 
     # classify コマンド
     p_classify = sub.add_parser("classify", help="AIで画像を自動分類")
     p_classify.add_argument("--folder", help="対象フォルダを限定")
     p_classify.add_argument("--source", help="別ディレクトリを分類（例: /download）")
     p_classify.add_argument("--force", action="store_true", help="分類済みも再分類")
+    p_classify.add_argument("--include-download", action="store_true",
+                            help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
 
     # organize コマンド
     p_organize = sub.add_parser("organize", help="分類結果に基づいてフォルダ整理")
@@ -854,6 +883,8 @@ def main():
     # quality コマンド
     p_quality = sub.add_parser("quality", help="AIで不要画像を判定（ブレ・低品質）")
     p_quality.add_argument("--force", action="store_true", help="判定済みも再チェック")
+    p_quality.add_argument("--include-download", action="store_true",
+                           help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
 
     args = parser.parse_args()
 
