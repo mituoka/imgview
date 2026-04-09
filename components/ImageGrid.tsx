@@ -12,6 +12,7 @@ type Props = {
   onImageClick: (index: number) => void;
   onDelete: (image: ImageItem) => void;
   onToggleSelect: (image: ImageItem) => void;
+  onDimensionLoad?: (path: string, w: number, h: number) => void;
   apiBase: string;
 };
 
@@ -23,6 +24,7 @@ type ThumbnailProps = {
   onImageClick: (index: number) => void;
   onDelete: (image: ImageItem) => void;
   onToggleSelect: (image: ImageItem) => void;
+  onDimensionLoad?: (path: string, w: number, h: number) => void;
   apiBase: string;
 };
 
@@ -35,7 +37,7 @@ const GRID_COLS: Record<number, string> = {
 
 function Thumbnail({
   image, index, selectMode, selected,
-  onImageClick, onDelete, onToggleSelect, apiBase,
+  onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
 }: ThumbnailProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
@@ -72,7 +74,11 @@ function Thumbnail({
             className={`w-full h-full object-cover transition-all duration-200 group-hover:scale-105 ${
               loaded ? "opacity-100" : "opacity-0"
             } ${selectMode && selected ? "opacity-70" : ""}`}
-            onLoad={() => setLoaded(true)}
+            onLoad={(e) => {
+              setLoaded(true);
+              const el = e.currentTarget;
+              onDimensionLoad?.(image.path, el.naturalWidth, el.naturalHeight);
+            }}
             onError={() => setError(true)}
           />
         </>
@@ -115,7 +121,7 @@ function Thumbnail({
 
 export default function ImageGrid({
   images, loading, columns, selectMode, selectedPaths,
-  onImageClick, onDelete, onToggleSelect, apiBase,
+  onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
 }: Props) {
   const colClass = GRID_COLS[columns] ?? "grid-cols-3";
 
@@ -149,6 +155,7 @@ export default function ImageGrid({
           onImageClick={onImageClick}
           onDelete={onDelete}
           onToggleSelect={onToggleSelect}
+          onDimensionLoad={onDimensionLoad}
           apiBase={apiBase}
         />
       ))}

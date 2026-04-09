@@ -2,6 +2,7 @@
 
 type SortKey = "mtime" | "size" | "filename";
 type SortDir = "desc" | "asc";
+export type OrientationFilter = "all" | "landscape" | "portrait";
 
 type Props = {
   search: string;
@@ -9,6 +10,8 @@ type Props = {
   sortKey: SortKey;
   sortDir: SortDir;
   onSortChange: (key: SortKey, dir: SortDir) => void;
+  orientation: OrientationFilter;
+  onOrientationChange: (v: OrientationFilter) => void;
   columns: number;
   onColumnsChange: (n: number) => void;
   selectMode: boolean;
@@ -23,6 +26,12 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: "filename", label: "名前" },
 ];
 
+const ORIENTATION_OPTIONS: { value: OrientationFilter; label: string }[] = [
+  { value: "all", label: "全て" },
+  { value: "landscape", label: "横長" },
+  { value: "portrait", label: "縦長" },
+];
+
 export type { SortKey, SortDir };
 
 export default function Toolbar({
@@ -31,6 +40,8 @@ export default function Toolbar({
   sortKey,
   sortDir,
   onSortChange,
+  orientation,
+  onOrientationChange,
   columns,
   onColumnsChange,
   selectMode,
@@ -66,6 +77,23 @@ export default function Toolbar({
             ✕
           </button>
         )}
+      </div>
+
+      {/* 向きフィルター */}
+      <div className="flex items-center gap-0.5 bg-gray-800 rounded-lg p-0.5">
+        {ORIENTATION_OPTIONS.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => onOrientationChange(value)}
+            className={`px-2.5 py-1 rounded text-xs transition-colors ${
+              orientation === value
+                ? "bg-gray-600 text-gray-100"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* ソート */}

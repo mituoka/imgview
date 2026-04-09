@@ -30,6 +30,85 @@ export default function Lightbox({
   const [playing, setPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // ── ズーム state ──────────────────────────────────────────
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isDragging = useRef(false);
+  const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
+  const isZoomed = view.zoom > 1.001;
+
+  // 画像が変わったらズームリセット
+  useEffect(() => {
+    setView({ zoom: 1, x: 0, y: 0 });
+  }, [image.path]);
+
+  // ホイールズーム（カーソル位置を中心に）
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - (rect.left + rect.width / 2);
+      const mouseY = e.clientY - (rect.top + rect.height / 2);
+      setView((prev) => {
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const newZoom = Math.min(Math.max(prev.zoom * factor, 1), 8);
+        if (newZoom <= 1) return { zoom: 1, x: 0, y: 0 };
+        const scaleDelta = newZoom / prev.zoom;
+        return {
+          zoom: newZoom,
+          x: mouseX - scaleDelta * (mouseX - prev.x),
+          y: mouseY - scaleDelta * (mouseY - prev.y),
+        };
+      });
+    };
+    container.addEventListener("wheel", onWheel, { passive: false });
+    return () => container.removeEventListener("wheel", onWheel);
+  }, []);
+
+  // ドラッグ（ズーム中のみ）
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (!isZoomed) return;
+    e.preventDefault();
+    e.stopPropagation();
+    isDragging.current = true;
+    dragStart.current = { mx: e.clientX, my: e.clientY, ox: view.x, oy: view.y };
+  }, [isZoomed, view.x, view.y]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current) return;
+      const dx = e.clientX - dragStart.current.mx;
+      const dy = e.clientY - dragStart.current.my;
+      setView((prev) => ({ ...prev, x: dragStart.current.ox + dx, y: dragStart.current.oy + dy }));
+    };
+    const onUp = () => { isDragging.current = false; };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  // ダブルクリック：ズームイン ↔ リセット
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isZoomed) {
+      setView({ zoom: 1, x: 0, y: 0 });
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const mouseX = e.clientX - (rect.left + rect.width / 2);
+    const mouseY = e.clientY - (rect.top + rect.height / 2);
+    setView({ zoom: 2.5, x: -mouseX * 1.5, y: -mouseY * 1.5 });
+  }, [isZoomed]);
+
+  // ── スライドショー ────────────────────────────────────────
   const stopSlideshow = useCallback(() => {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -40,16 +119,13 @@ export default function Lightbox({
 
   const startSlideshow = useCallback(() => {
     setPlaying(true);
-    intervalRef.current = setInterval(() => {
-      onNext();
-    }, SLIDESHOW_INTERVAL);
+    intervalRef.current = setInterval(() => { onNext(); }, SLIDESHOW_INTERVAL);
   }, [onNext]);
 
   const toggleSlideshow = useCallback(() => {
     playing ? stopSlideshow() : startSlideshow();
   }, [playing, startSlideshow, stopSlideshow]);
 
-  // スライドショー中に手動ナビしたらリセット
   const handlePrev = useCallback(() => {
     if (playing) stopSlideshow();
     onPrev();
@@ -60,12 +136,29 @@ export default function Lightbox({
     onNext();
   }, [playing, stopSlideshow, onNext]);
 
+  // ── キーボード ────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === "Escape") { stopSlideshow(); onClose(); }
+    if (e.key === "Escape") {
+      if (isZoomed) { setView({ zoom: 1, x: 0, y: 0 }); return; }
+      stopSlideshow(); onClose();
+    }
     if (e.key === "ArrowLeft") handlePrev();
     if (e.key === "ArrowRight") handleNext();
     if (e.key === " ") { e.preventDefault(); toggleSlideshow(); }
-  }, [onClose, handlePrev, handleNext, toggleSlideshow, stopSlideshow]);
+    if (e.key === "+" || e.key === "=") {
+      setView((prev) => {
+        const newZoom = Math.min(prev.zoom * 1.3, 8);
+        return { ...prev, zoom: newZoom };
+      });
+    }
+    if (e.key === "-") {
+      setView((prev) => {
+        const newZoom = Math.max(prev.zoom / 1.3, 1);
+        return newZoom <= 1 ? { zoom: 1, x: 0, y: 0 } : { ...prev, zoom: newZoom };
+      });
+    }
+    if (e.key === "0") setView({ zoom: 1, x: 0, y: 0 });
+  }, [isZoomed, onClose, handlePrev, handleNext, toggleSlideshow, stopSlideshow]);
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -77,7 +170,7 @@ export default function Lightbox({
     };
   }, [handleKeyDown]);
 
-  // 最後の画像でスライドショーが止まらないよう onNext が変わったらインターバル再設定
+  // スライドショー中に onNext が変わったらインターバル再設定
   useEffect(() => {
     if (!playing) return;
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -86,7 +179,10 @@ export default function Lightbox({
   }, [playing, onNext]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black/95" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black/95"
+      onClick={isZoomed ? undefined : onClose}
+    >
       {/* Top bar */}
       <div
         className="flex items-center justify-between px-4 py-3 bg-gray-900/80 flex-shrink-0"
@@ -95,7 +191,6 @@ export default function Lightbox({
         <span className="text-gray-400 text-sm">{index + 1} / {total}</span>
         <span className="text-gray-200 text-sm font-medium truncate mx-4 max-w-md">{image.filename}</span>
         <div className="flex items-center gap-2">
-          {/* スライドショーボタン */}
           <button
             onClick={toggleSlideshow}
             title={`スライドショー (Space) — ${SLIDESHOW_INTERVAL / 1000}秒`}
@@ -126,36 +221,68 @@ export default function Lightbox({
       </div>
 
       {/* Image area */}
-      <div className="flex-1 flex items-center justify-center relative overflow-hidden">
-        <button
-          onClick={(e) => { e.stopPropagation(); handlePrev(); }}
-          className="absolute left-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
-          aria-label="Previous"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
+      <div
+        ref={containerRef}
+        className="flex-1 flex items-center justify-center relative overflow-hidden"
+        style={{ cursor: isZoomed ? (isDragging.current ? "grabbing" : "grab") : "default" }}
+      >
+        {/* 前へ（ズーム中は非表示） */}
+        {!isZoomed && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+            className="absolute left-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
+            aria-label="Previous"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
 
-        <div className="max-w-full max-h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="max-w-full max-h-full flex items-center justify-center p-4 select-none"
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={handleDoubleClick}
+          style={{
+            transform: `scale(${view.zoom}) translate(${view.x / view.zoom}px, ${view.y / view.zoom}px)`,
+            transformOrigin: "center center",
+            transition: isDragging.current ? "none" : "transform 0.1s ease-out",
+          }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={image.filename}
-            className="max-w-full max-h-[calc(100vh-160px)] object-contain select-none"
+            className="max-w-full max-h-[calc(100vh-160px)] object-contain"
             draggable={false}
           />
         </div>
 
-        <button
-          onClick={(e) => { e.stopPropagation(); handleNext(); }}
-          className="absolute right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
-          aria-label="Next"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
+        {/* 次へ（ズーム中は非表示） */}
+        {!isZoomed && (
+          <button
+            onClick={(e) => { e.stopPropagation(); handleNext(); }}
+            className="absolute right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
+            aria-label="Next"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+
+        {/* ズームレベルバッジ */}
+        {isZoomed && (
+          <div className="absolute bottom-4 right-4 flex items-center gap-2">
+            <button
+              onClick={(e) => { e.stopPropagation(); setView({ zoom: 1, x: 0, y: 0 }); }}
+              className="px-2.5 py-1 bg-black/70 hover:bg-black/90 text-white text-xs rounded-full transition-colors"
+            >
+              ×{view.zoom.toFixed(1)} リセット
+            </button>
+          </div>
+        )}
 
         {/* スライドショー進行バー */}
         {playing && (
@@ -182,6 +309,11 @@ export default function Lightbox({
           <span className="text-gray-500">Modified: </span>
           <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
         </span>
+        {isZoomed && (
+          <span className="ml-auto text-gray-500 text-xs">
+            ホイール: ズーム｜ドラッグ: 移動｜ダブルクリック/0: リセット
+          </span>
+        )}
       </div>
     </div>
   );

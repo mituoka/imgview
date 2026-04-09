@@ -12,8 +12,9 @@ imgtools - ローカル画像管理・AI自動分類CLIツール
   python imgtools.py organize                # 分類結果に基づいてフォルダ整理
 
 固定ディレクトリ:
-  Download: ~/dev/download
-  Images:   ~/dev/images
+  Download : ~/dev/download
+  Downloads: ~/Downloads  (Macの標準ダウンロードフォルダ)
+  Images   : ~/dev/images
 """
 
 import argparse
@@ -28,9 +29,17 @@ from pathlib import Path
 import requests
 from PIL import Image
 
+try:
+    import pillow_heif
+    pillow_heif.register_heif_opener()
+    HEIC_SUPPORT = True
+except ImportError:
+    HEIC_SUPPORT = False
+
 # ─── 設定 ───────────────────────────────────────────────
 BASE_DIR = Path(os.environ.get("IMAGES_DIR", str(Path.home() / "dev" / "images")))
 DOWNLOAD_DIR = Path.home() / "dev" / "download"  # 固定のダウンロードフォルダ
+MAC_DOWNLOADS_DIR = Path.home() / "Downloads"  # Macの標準ダウンロードフォルダ
 CACHE_FILE = BASE_DIR / ".imgtools_cache.json"
 OLLAMA_URL = "http://localhost:11434"
 VISION_MODEL = "llava:7b"
@@ -67,10 +76,12 @@ CATEGORY_LABELS = {
 # ─── ユーティリティ ─────────────────────────────────────
 def find_images(target_dir: Path = BASE_DIR, recursive: bool = True,
                 include_download: bool = False) -> list[Path]:
-    """画像ファイルを探す。include_download=True で DOWNLOAD_DIR も対象にする"""
+    """画像ファイルを探す。include_download=True で DOWNLOAD_DIR と MAC_DOWNLOADS_DIR も対象にする"""
     dirs = [target_dir]
-    if include_download and DOWNLOAD_DIR.exists() and DOWNLOAD_DIR != target_dir:
-        dirs.append(DOWNLOAD_DIR)
+    if include_download:
+        for dl_dir in [DOWNLOAD_DIR, MAC_DOWNLOADS_DIR]:
+            if dl_dir.exists() and dl_dir != target_dir and dl_dir not in dirs:
+                dirs.append(dl_dir)
 
     images = []
     for d in dirs:
@@ -88,7 +99,11 @@ def get_cache_key(img: Path) -> str:
     try:
         return str(img.relative_to(BASE_DIR))
     except ValueError:
-        return f"download/{img.name}"
+        try:
+            img.relative_to(MAC_DOWNLOADS_DIR)
+            return f"mac_downloads/{img.name}"
+        except ValueError:
+            return f"download/{img.name}"
 
 
 def format_size(size_bytes: int) -> str:
@@ -459,39 +474,61 @@ def cmd_stats(args):
     print()
 
 
-def move_from_download(show_summary: bool = True) -> int:
-    """downloadフォルダから画像を移動（内部用）"""
-    source = DOWNLOAD_DIR
-    dest = BASE_DIR
+def convert_heic_to_jpeg(src: Path, dest_dir: Path, quality: int = 85) -> Path | None:
+    """HEIC を JPEG に変換して dest_dir に保存。成功時に JPEG パスを返す。"""
+    if not HEIC_SUPPORT:
+        return None
+    dest = dest_dir / (src.stem + ".jpg")
+    if dest.exists():
+        return None  # 変換済み
+    try:
+        with Image.open(src) as img:
+            img.convert("RGB").save(dest, "JPEG", quality=quality)
+        return dest
+    except Exception as e:
+        print(f"  [HEIC ERROR] {src.name}: {e}")
+        if dest.exists():
+            dest.unlink()
+        return None
 
-    if not source.exists():
-        if show_summary:
-            print(f"ℹ️  Download フォルダが空です: {source}")
-        return 0
 
-    dest.mkdir(parents=True, exist_ok=True)
-
-    # 画像と動画を検出
+def _move_files_from_source(source: Path, dest: Path, show_summary: bool) -> int:
+    """指定ソースフォルダから画像・動画を dest へ移動（内部用）"""
     images = find_images(source, recursive=False)
-    videos = []
-    for p in source.glob("*"):
-        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
-            videos.append(p)
+    videos = [p for p in source.glob("*") if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
 
     if not images and not videos:
-        if show_summary:
-            print("ℹ️  移動するファイルがありません。")
         return 0
 
     if show_summary:
-        print(f"\n📥 Download → Images")
-        print(f"  画像: {len(images)}枚")
-        print(f"  動画: {len(videos)}本")
+        print(f"  [{source}]")
+        print(f"    画像: {len(images)}枚, 動画: {len(videos)}本")
 
     moved = 0
-    # 画像を移動
     for img in images:
         try:
+            # HEIC は JPEG に変換してから保存（元ファイルは削除）
+            if img.suffix.lower() in (".heic", ".heif"):
+                if HEIC_SUPPORT:
+                    converted = convert_heic_to_jpeg(img, dest)
+                    if converted:
+                        img.unlink()
+                        moved += 1
+                        if show_summary:
+                            print(f"  [HEIC→JPG] {img.name} → {converted.name}")
+                    else:
+                        if show_summary:
+                            print(f"  [SKIP] {img.name} (変換済みまたは失敗)")
+                else:
+                    # pillow-heif なしの場合はそのまま移動
+                    dest_path = dest / img.name
+                    if not dest_path.exists():
+                        img.rename(dest_path)
+                        moved += 1
+                        if show_summary:
+                            print(f"  [WARN] {img.name} (pillow-heif 未インストール、変換なし)")
+                continue
+
             dest_path = dest / img.name
             if dest_path.exists():
                 if show_summary:
@@ -502,7 +539,6 @@ def move_from_download(show_summary: bool = True) -> int:
         except Exception as e:
             print(f"  [ERROR] {img.name}: {e}")
 
-    # 動画を移動
     if videos:
         video_dest = dest / "videos"
         video_dest.mkdir(exist_ok=True)
@@ -518,9 +554,33 @@ def move_from_download(show_summary: bool = True) -> int:
             except Exception as e:
                 print(f"  [ERROR] {vid.name}: {e}")
 
-    if show_summary:
-        print(f"✅ {moved} ファイルを移動しました。\n")
     return moved
+
+
+def move_from_download(show_summary: bool = True) -> int:
+    """download フォルダと Mac 標準 Downloads フォルダから画像を移動（内部用）"""
+    dest = BASE_DIR
+    dest.mkdir(parents=True, exist_ok=True)
+
+    sources = [s for s in [DOWNLOAD_DIR, MAC_DOWNLOADS_DIR] if s.exists()]
+    if not sources:
+        if show_summary:
+            print(f"ℹ️  移動するファイルがありません。")
+        return 0
+
+    if show_summary:
+        print(f"\n📥 Download → Images")
+
+    total = 0
+    for source in sources:
+        total += _move_files_from_source(source, dest, show_summary)
+
+    if show_summary:
+        if total == 0:
+            print("ℹ️  移動するファイルがありません。")
+        else:
+            print(f"✅ {total} ファイルを移動しました。\n")
+    return total
 
 
 def cmd_auto(args):
@@ -528,8 +588,9 @@ def cmd_auto(args):
     print("=" * 60)
     print("  🤖 imgtools - 全自動モード")
     print("=" * 60)
-    print(f"  Download: {DOWNLOAD_DIR}")
-    print(f"  Images  : {BASE_DIR}")
+    print(f"  Download : {DOWNLOAD_DIR}")
+    print(f"  Downloads: {MAC_DOWNLOADS_DIR}")
+    print(f"  Images   : {BASE_DIR}")
     print("=" * 60)
 
     # ステップ1: 移動
@@ -858,12 +919,12 @@ def main():
     p_scan = sub.add_parser("scan", help="画像の概要を表示")
     p_scan.add_argument("--source", help="スキャン対象ディレクトリ（デフォルト: IMAGES_DIR）")
     p_scan.add_argument("--include-download", action="store_true",
-                        help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
+                        help=f"~/dev/download と ~/Downloads も対象にする")
 
     # dupes コマンド
     p_dupes = sub.add_parser("dupes", help="重複画像を検出")
     p_dupes.add_argument("--include-download", action="store_true",
-                         help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
+                         help=f"~/dev/download と ~/Downloads も対象にする")
 
     # classify コマンド
     p_classify = sub.add_parser("classify", help="AIで画像を自動分類")
@@ -871,7 +932,7 @@ def main():
     p_classify.add_argument("--source", help="別ディレクトリを分類（例: /download）")
     p_classify.add_argument("--force", action="store_true", help="分類済みも再分類")
     p_classify.add_argument("--include-download", action="store_true",
-                            help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
+                            help=f"~/dev/download と ~/Downloads も対象にする")
 
     # organize コマンド
     p_organize = sub.add_parser("organize", help="分類結果に基づいてフォルダ整理")
@@ -884,7 +945,7 @@ def main():
     p_quality = sub.add_parser("quality", help="AIで不要画像を判定（ブレ・低品質）")
     p_quality.add_argument("--force", action="store_true", help="判定済みも再チェック")
     p_quality.add_argument("--include-download", action="store_true",
-                           help=f"download フォルダも対象にする ({DOWNLOAD_DIR})")
+                           help=f"~/dev/download と ~/Downloads も対象にする")
 
     args = parser.parse_args()
 

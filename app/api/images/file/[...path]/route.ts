@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import fs from "fs";
 import path from "path";
+import sharp from "sharp";
 
 
 
@@ -49,6 +50,23 @@ export async function GET(
   }
 
   const ext = path.extname(fullPath).toLowerCase();
+
+  // HEIC/HEIF はブラウザ非対応なので JPEG に変換して返す
+  if (ext === ".heic" || ext === ".heif") {
+    try {
+      const jpegBuffer = await sharp(fileBuffer).jpeg({ quality: 85 }).toBuffer();
+      return new Response(new Uint8Array(jpegBuffer), {
+        status: 200,
+        headers: {
+          "Content-Type": "image/jpeg",
+          "Cache-Control": "public, max-age=3600",
+        },
+      });
+    } catch {
+      return new Response("Failed to convert HEIC", { status: 500 });
+    }
+  }
+
   const contentType = MIME_TYPES[ext] ?? "application/octet-stream";
 
   return new Response(new Uint8Array(fileBuffer), {

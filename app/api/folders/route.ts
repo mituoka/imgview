@@ -56,6 +56,7 @@ export async function GET() {
 
     const folderPath = path.join(IMAGES_ROOT, entry.name);
     const count = countImagesInDir(folderPath);
+    if (count === 0) continue;
 
     folders.push({
       name: entry.name,

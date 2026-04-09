@@ -5,7 +5,7 @@ import { ImageItem, FolderInfo } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
-import Toolbar, { SortKey, SortDir } from "@/components/Toolbar";
+import Toolbar, { SortKey, SortDir, OrientationFilter } from "@/components/Toolbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -33,6 +33,8 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("mtime");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [orientation, setOrientation] = useState<OrientationFilter>("all");
+  const [dimensionMap, setDimensionMap] = useState<Map<string, { w: number; h: number }>>(new Map());
   const [columns, setColumns] = useState(3);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -65,10 +67,19 @@ export default function Home() {
     if (!selectMode) setSelectedPaths(new Set());
   }, [selectMode]);
 
+  const handleDimensionLoad = useCallback((path: string, w: number, h: number) => {
+    setDimensionMap((prev) => {
+      if (prev.get(path)?.w === w && prev.get(path)?.h === h) return prev;
+      const next = new Map(prev);
+      next.set(path, { w, h });
+      return next;
+    });
+  }, []);
+
   // フィルタ + ソート済み画像
   const filteredImages = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const filtered = q
+    let filtered = q
       ? images.filter(
           (img) =>
             img.filename.toLowerCase().includes(q) ||
@@ -76,8 +87,17 @@ export default function Home() {
             (img.category ?? "").toLowerCase().includes(q)
         )
       : images;
+
+    if (orientation !== "all") {
+      filtered = filtered.filter((img) => {
+        const dim = dimensionMap.get(img.path);
+        if (!dim) return true; // 未ロードは除外しない
+        return orientation === "landscape" ? dim.w > dim.h : dim.h >= dim.w;
+      });
+    }
+
     return sortImages(filtered, sortKey, sortDir);
-  }, [images, search, sortKey, sortDir]);
+  }, [images, search, sortKey, sortDir, orientation, dimensionMap]);
 
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
 
@@ -142,7 +162,7 @@ export default function Home() {
       />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="p-4">
+        <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 pt-4 pb-3">
           <div className="mb-2 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-100">
               {selectedFolder ?? "All"}
@@ -160,6 +180,8 @@ export default function Home() {
             sortKey={sortKey}
             sortDir={sortDir}
             onSortChange={handleSortChange}
+            orientation={orientation}
+            onOrientationChange={setOrientation}
             columns={columns}
             onColumnsChange={setColumns}
             selectMode={selectMode}
@@ -167,7 +189,9 @@ export default function Home() {
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             onBulkDelete={handleBulkDelete}
           />
+        </div>
 
+        <div className="p-4">
           <ImageGrid
             images={filteredImages}
             loading={loadingImages}
@@ -177,6 +201,7 @@ export default function Home() {
             onImageClick={handleImageClick}
             onDelete={handleDeleteRequest}
             onToggleSelect={handleToggleSelect}
+            onDimensionLoad={handleDimensionLoad}
             apiBase={API_BASE}
           />
         </div>
