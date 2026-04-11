@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState, useRef } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { ImageItem } from "@/types";
 
 type Props = {
@@ -29,6 +30,15 @@ export default function Lightbox({
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
   const [playing, setPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // QR共有
+  const [qrUrl, setQrUrl] = useState<string | null>(null);
+  const showQr = useCallback(async () => {
+    const res = await fetch(`${apiBase}/api/local-ip`).then((r) => r.json());
+    const port = window.location.port ? `:${window.location.port}` : "";
+    const fileUrl = `/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
+    setQrUrl(`http://${res.ip}${port}${fileUrl}`);
+  }, [apiBase, image.path]);
 
   // 高画質化
   const [upscaleStatus, setUpscaleStatus] = useState<"idle" | "running" | "done" | "error">("idle");
@@ -74,6 +84,7 @@ export default function Lightbox({
   useEffect(() => {
     setView({ zoom: 1, x: 0, y: 0 });
     setUpscaleStatus("idle");
+    setQrUrl(null);
   }, [image.path]);
 
   // ホイールズーム（カーソル位置を中心に）
@@ -237,6 +248,14 @@ export default function Lightbox({
             {playing ? "⏸ 停止" : "▶ スライドショー"}
           </button>
           <button
+            onClick={() => qrUrl ? setQrUrl(null) : showQr()}
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              qrUrl ? "bg-blue-600 text-white" : "bg-gray-700 hover:bg-gray-600 text-gray-300"
+            }`}
+          >
+            QR
+          </button>
+          <button
             onClick={runUpscale}
             disabled={upscaleStatus === "running" || upscaleStatus === "done"}
             title="Upscaylで高画質化（元ファイルは置き換えられます）"
@@ -328,6 +347,17 @@ export default function Lightbox({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
+        )}
+
+        {/* QRコードポップアップ */}
+        {qrUrl && (
+          <div
+            className="absolute top-4 right-4 bg-white rounded-xl p-4 shadow-2xl z-20 flex flex-col items-center gap-2"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <QRCodeSVG value={qrUrl} size={180} />
+            <p className="text-gray-600 text-xs text-center max-w-[180px] break-all">{qrUrl}</p>
+          </div>
         )}
 
         {/* ズームレベルバッジ */}
