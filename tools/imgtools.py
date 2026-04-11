@@ -46,6 +46,8 @@ UPSCAYL_MODELS = Path("/Applications/Upscayl.app/Contents/Resources/models")
 UPSCAYL_DEFAULT_MODEL = "upscayl-standard-4x"
 OLLAMA_URL = "http://localhost:11434"
 VISION_MODEL = "llava:7b"
+EMBED_MODEL = "nomic-embed-text"
+CHROMA_DIR = BASE_DIR / ".imgvec"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".heic", ".svg"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv"}
 
@@ -429,6 +431,14 @@ def cmd_organize(args):
         print("キャンセルしました。")
         return
 
+    # ChromaDB が存在すれば使う（なければスキップ）
+    chroma_collection = None
+    if CHROMA_DIR.exists():
+        try:
+            chroma_collection = get_chroma_collection()
+        except Exception:
+            pass
+
     # 実行
     moved = 0
     for src, dest, category in moves:
@@ -440,6 +450,27 @@ def cmd_organize(args):
             new_rel = str(dest.relative_to(BASE_DIR))
             if old_rel in cache:
                 cache[new_rel] = cache.pop(old_rel)
+
+            # ChromaDB の ID を新パスに移し替え
+            if chroma_collection is not None:
+                try:
+                    result = chroma_collection.get(
+                        ids=[old_rel],
+                        include=["embeddings", "documents", "metadatas"],
+                    )
+                    if result["ids"]:
+                        meta = result["metadatas"][0]
+                        meta["path"] = new_rel
+                        chroma_collection.upsert(
+                            ids=[new_rel],
+                            embeddings=result["embeddings"],
+                            documents=result["documents"],
+                            metadatas=[meta],
+                        )
+                        chroma_collection.delete(ids=[old_rel])
+                except Exception:
+                    pass  # DB 未生成なら無視
+
             moved += 1
         except Exception as e:
             print(f"  [ERROR] {src.name}: {e}")
@@ -1040,6 +1071,307 @@ def _fmt_size(n: int) -> str:
     return f"{n / 1024 / 1024:.1f} MB"
 
 
+# ─── RAG ヘルパー ────────────────────────────────────────
+
+def get_chroma_collection():
+    import chromadb
+    client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    return client.get_or_create_collection(
+        "images",
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def generate_caption(path: Path) -> str:
+    """llava:7b で画像の詳細な説明文を生成"""
+    img_b64 = image_to_base64(path)
+    prompt = (
+        "Describe this image in detail in English. "
+        "Include the main subjects, colors, setting, and mood. "
+        "Be concise but descriptive (2-3 sentences)."
+    )
+    resp = requests.post(
+        f"{OLLAMA_URL}/api/generate",
+        json={
+            "model": VISION_MODEL,
+            "prompt": prompt,
+            "images": [img_b64],
+            "stream": False,
+            "options": {"temperature": 0.3},
+        },
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()["response"].strip()
+
+
+def generate_embedding(text: str) -> list:
+    """nomic-embed-text でテキストの embedding を生成"""
+    resp = requests.post(
+        f"{OLLAMA_URL}/api/embeddings",
+        json={"model": EMBED_MODEL, "prompt": text},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["embedding"]
+
+
+# ─── caption コマンド ─────────────────────────────────────
+
+def cmd_caption(args):
+    """llava:7b で画像のキャプションを生成してキャッシュに保存"""
+    try:
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        models = [m["name"] for m in resp.json().get("models", [])]
+        if not any(VISION_MODEL.split(":")[0] in m for m in models):
+            print(f"Error: ビジョンモデル '{VISION_MODEL}' がインストールされていません。")
+            print(f"  実行: ollama pull {VISION_MODEL}")
+            return
+    except requests.ConnectionError:
+        print("Error: Ollama サーバーに接続できません。'ollama serve' を実行してください。")
+        return
+
+    images = find_images(BASE_DIR)
+    cache = load_cache()
+
+    if not args.force:
+        images = [img for img in images if "caption" not in cache.get(get_cache_key(img), {})]
+
+    if not images:
+        print("キャプション生成する画像がありません（すべて生成済み）。--force で再生成できます。")
+        return
+
+    print(f"\n{len(images)} 画像のキャプションを生成中... (model: {VISION_MODEL})\n")
+
+    for i, img in enumerate(images):
+        rel = get_cache_key(img)
+        print(f"  [{i + 1}/{len(images)}] {img.name} ... ", end="", flush=True)
+        try:
+            caption = generate_caption(img)
+            print("OK")
+            if rel not in cache:
+                cache[rel] = {}
+            cache[rel]["caption"] = caption
+            if (i + 1) % 10 == 0:
+                save_cache(cache)
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    save_cache(cache)
+    print(f"\nキャプション生成完了！次は 'embed' でベクトル化してください。")
+
+
+# ─── embed コマンド ───────────────────────────────────────
+
+def cmd_embed(args):
+    """キャプションから embedding を生成して ChromaDB に保存"""
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        print("Error: chromadb がインストールされていません。pip install chromadb")
+        return
+
+    cache = load_cache()
+    captioned = [(k, v) for k, v in cache.items() if "caption" in v]
+
+    if not captioned:
+        print("キャプションが生成されている画像がありません。先に 'caption' を実行してください。")
+        return
+
+    collection = get_chroma_collection()
+
+    existing: set = set()
+    if not args.force:
+        try:
+            result = collection.get(ids=[k for k, _ in captioned])
+            existing = set(result["ids"])
+        except Exception:
+            pass
+
+    to_embed = [(k, v) for k, v in captioned if k not in existing]
+
+    if not to_embed:
+        print(f"embedding する画像がありません（{len(captioned)} 件すべて完了済み）。--force で再生成できます。")
+        return
+
+    print(f"\n{len(to_embed)} 画像の embedding を生成中... (model: {EMBED_MODEL})\n")
+
+    batch_ids, batch_embeddings, batch_documents, batch_metadatas = [], [], [], []
+
+    for i, (key, info) in enumerate(to_embed):
+        print(f"  [{i + 1}/{len(to_embed)}] {info.get('name', key)} ... ", end="", flush=True)
+        try:
+            caption = info["caption"]
+            text = f"{info.get('category', '')} {caption}".strip()
+            embedding = generate_embedding(text)
+
+            batch_ids.append(key)
+            batch_embeddings.append(embedding)
+            batch_documents.append(caption)
+            batch_metadatas.append({
+                "path": key,
+                "category": info.get("category", ""),
+                "name": info.get("name", ""),
+            })
+            print("OK")
+
+            if len(batch_ids) >= 50:
+                collection.upsert(
+                    ids=batch_ids,
+                    embeddings=batch_embeddings,
+                    documents=batch_documents,
+                    metadatas=batch_metadatas,
+                )
+                batch_ids, batch_embeddings, batch_documents, batch_metadatas = [], [], [], []
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    if batch_ids:
+        collection.upsert(
+            ids=batch_ids,
+            embeddings=batch_embeddings,
+            documents=batch_documents,
+            metadatas=batch_metadatas,
+        )
+
+    print(f"\nembedding 生成完了！ChromaDB: {CHROMA_DIR}")
+
+
+# ─── analyze コマンド（一括処理）────────────────────────────
+
+def cmd_analyze(args):
+    """AI一括処理: 分類 → 品質チェック → キャプション → ベクトル化"""
+    print("=" * 60)
+    print("  AI一括処理")
+    print("  分類 → 品質チェック → キャプション → ベクトル化")
+    print("=" * 60)
+
+    class _Args:
+        force = False
+        include_download = False
+        folder = None
+        source = None
+
+    a = _Args()
+
+    print("\n[1/4] AI分類中...\n")
+    cmd_classify(a)
+
+    print("\n[2/4] AI品質チェック中...\n")
+    cmd_quality(a)
+
+    print("\n[3/4] キャプション生成中...\n")
+    cmd_caption(a)
+
+    print("\n[4/4] ベクトル化中...\n")
+    cmd_embed(a)
+
+    print("\n" + "=" * 60)
+    print("  AI一括処理 完了！")
+    print("  Toolbar の ✦ AI ボタンでセマンティック検索が使えます。")
+    print("=" * 60)
+
+
+# ─── search コマンド ──────────────────────────────────────
+
+def cmd_search(args):
+    """セマンティック検索（JSON 出力）"""
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        print(json.dumps({"error": "chromadb not installed"}))
+        return
+
+    query = args.query
+    n = getattr(args, "limit", 20)
+
+    try:
+        collection = get_chroma_collection()
+        count = collection.count()
+        if count == 0:
+            print(json.dumps({"error": "No embeddings found. Run 'caption' then 'embed' first."}))
+            return
+
+        query_embedding = generate_embedding(query)
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(n, count),
+            include=["documents", "metadatas", "distances"],
+        )
+
+        output = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            output.append({
+                "path": meta["path"],
+                "score": round(1 - dist, 4),
+                "caption": doc,
+                "category": meta.get("category", ""),
+                "name": meta.get("name", ""),
+            })
+
+        print(json.dumps(output, ensure_ascii=False))
+
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+
+
+# ─── similar コマンド ─────────────────────────────────────
+
+def cmd_similar(args):
+    """類似画像検索（JSON 出力）"""
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        print(json.dumps({"error": "chromadb not installed"}))
+        return
+
+    target_path = args.path
+    n = getattr(args, "limit", 12)
+
+    try:
+        collection = get_chroma_collection()
+
+        result = collection.get(ids=[target_path], include=["embeddings"])
+        if not result["ids"]:
+            print(json.dumps({"error": f"Image not embedded: {target_path}. Run 'embed' first."}))
+            return
+
+        target_embedding = result["embeddings"][0]
+        total = collection.count()
+
+        results = collection.query(
+            query_embeddings=[target_embedding],
+            n_results=min(n + 1, total),
+            include=["documents", "metadatas", "distances"],
+        )
+
+        output = []
+        for doc, meta, dist in zip(
+            results["documents"][0],
+            results["metadatas"][0],
+            results["distances"][0],
+        ):
+            if meta["path"] == target_path:
+                continue
+            output.append({
+                "path": meta["path"],
+                "score": round(1 - dist, 4),
+                "caption": doc,
+                "category": meta.get("category", ""),
+                "name": meta.get("name", ""),
+            })
+
+        print(json.dumps(output[:n], ensure_ascii=False))
+
+    except Exception as e:
+        print(json.dumps({"error": str(e)}))
+
+
 # ─── メイン ─────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
@@ -1088,6 +1420,27 @@ def main():
     p_quality.add_argument("--include-download", action="store_true",
                            help=f"~/dev/download と ~/Downloads も対象にする")
 
+    # analyze コマンド
+    sub.add_parser("analyze", help="AI一括処理: 分類 → 品質チェック → キャプション → ベクトル化")
+
+    # caption コマンド
+    p_caption = sub.add_parser("caption", help="llava:7b で画像のキャプションを生成")
+    p_caption.add_argument("--force", action="store_true", help="生成済みも再生成")
+
+    # embed コマンド
+    p_embed = sub.add_parser("embed", help="キャプションから embedding を生成して ChromaDB に保存")
+    p_embed.add_argument("--force", action="store_true", help="生成済みも再生成")
+
+    # search コマンド
+    p_search = sub.add_parser("search", help="セマンティック検索（JSON 出力）")
+    p_search.add_argument("query", help="検索クエリ")
+    p_search.add_argument("--limit", type=int, default=20, help="最大件数（デフォルト: 20）")
+
+    # similar コマンド
+    p_similar = sub.add_parser("similar", help="類似画像検索（JSON 出力）")
+    p_similar.add_argument("path", help="基準画像のパス（IMAGES_DIR からの相対パス）")
+    p_similar.add_argument("--limit", type=int, default=12, help="最大件数（デフォルト: 12）")
+
     # upscale コマンド
     p_upscale = sub.add_parser("upscale", help="Upscayl で画像を高画質化")
     p_upscale.add_argument("--model", default=UPSCAYL_DEFAULT_MODEL,
@@ -1118,6 +1471,11 @@ def main():
         "stats": cmd_stats,
         "quality": cmd_quality,
         "upscale": cmd_upscale,
+        "analyze": cmd_analyze,
+        "caption": cmd_caption,
+        "embed": cmd_embed,
+        "search": cmd_search,
+        "similar": cmd_similar,
     }
 
     commands[args.command](args)

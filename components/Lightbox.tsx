@@ -13,6 +13,7 @@ type Props = {
   onPrev: () => void;
   onNext: () => void;
   onDelete: (image: ImageItem) => void;
+  onFindSimilar: (path: string) => void;
 };
 
 const SLIDESHOW_INTERVAL = 3000;
@@ -25,7 +26,7 @@ function formatBytes(bytes: number): string {
 
 export default function Lightbox({
   image, index, total, apiBase,
-  onClose, onPrev, onNext, onDelete,
+  onClose, onPrev, onNext, onDelete, onFindSimilar,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
   const [playing, setPlaying] = useState(false);
@@ -254,6 +255,13 @@ export default function Lightbox({
             }`}
           >
             QR
+          </button>
+          <button
+            onClick={() => onFindSimilar(image.path)}
+            title="この画像に似た画像を探す"
+            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg transition-colors"
+          >
+            類似を探す
           </button>
           <button
             onClick={runUpscale}

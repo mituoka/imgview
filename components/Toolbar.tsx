@@ -1,5 +1,7 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
+
 type SortKey = "mtime" | "size" | "filename";
 type SortDir = "desc" | "asc";
 export type OrientationFilter = "all" | "landscape" | "portrait";
@@ -18,6 +20,12 @@ type Props = {
   selectedCount: number;
   onToggleSelectMode: () => void;
   onBulkDelete: () => void;
+  // AI 検索
+  aiMode: boolean;
+  aiSearching: boolean;
+  aiResultCount: number | null;
+  onAiModeToggle: () => void;
+  onAiSearch: (q: string) => void;
 };
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -48,7 +56,20 @@ export default function Toolbar({
   selectedCount,
   onToggleSelectMode,
   onBulkDelete,
+  aiMode,
+  aiSearching,
+  aiResultCount,
+  onAiModeToggle,
+  onAiSearch,
 }: Props) {
+  const [aiQuery, setAiQuery] = useState("");
+  const aiInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (aiMode) aiInputRef.current?.focus();
+    else setAiQuery("");
+  }, [aiMode]);
+
   const handleSortClick = (key: SortKey) => {
     if (key === sortKey) {
       onSortChange(key, sortDir === "desc" ? "asc" : "desc");
@@ -57,27 +78,78 @@ export default function Toolbar({
     }
   };
 
+  const handleAiSubmit = () => {
+    if (aiQuery.trim()) onAiSearch(aiQuery.trim());
+  };
+
   return (
     <div className="flex items-center gap-2 mb-4 flex-wrap">
-      {/* 検索 */}
-      <div className="relative flex-1 min-w-40">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔍</span>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          placeholder="検索..."
-          className="w-full bg-gray-800 text-gray-100 text-sm rounded-lg pl-8 pr-3 py-1.5 border border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-500"
-        />
-        {search && (
+      {/* AI 検索トグル */}
+      <button
+        onClick={onAiModeToggle}
+        title="AI セマンティック検索"
+        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
+          aiMode
+            ? "bg-violet-600 text-white"
+            : "bg-gray-800 text-gray-400 hover:text-gray-200"
+        }`}
+      >
+        <span>✦</span>
+        AI
+      </button>
+
+      {/* 検索ボックス（通常 / AI） */}
+      {aiMode ? (
+        <div className="relative flex-1 min-w-40 flex gap-1">
+          <div className="relative flex-1">
+            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-violet-400 text-sm">✦</span>
+            <input
+              ref={aiInputRef}
+              type="text"
+              value={aiQuery}
+              onChange={(e) => setAiQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAiSubmit()}
+              placeholder="自然言語で検索... (例: 夕日の海、笑顔の人)"
+              className="w-full bg-gray-800 text-gray-100 text-sm rounded-lg pl-8 pr-3 py-1.5 border border-violet-700 focus:border-violet-400 focus:outline-none placeholder-gray-500"
+            />
+          </div>
           <button
-            onClick={() => onSearchChange("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+            onClick={handleAiSubmit}
+            disabled={aiSearching || !aiQuery.trim()}
+            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs rounded-lg transition-colors"
           >
-            ✕
+            {aiSearching ? (
+              <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              "検索"
+            )}
           </button>
-        )}
-      </div>
+          {aiResultCount !== null && (
+            <span className="self-center text-xs text-violet-400 whitespace-nowrap">
+              {aiResultCount} 件
+            </span>
+          )}
+        </div>
+      ) : (
+        <div className="relative flex-1 min-w-40">
+          <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm">🔍</span>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="検索..."
+            className="w-full bg-gray-800 text-gray-100 text-sm rounded-lg pl-8 pr-3 py-1.5 border border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-500"
+          />
+          {search && (
+            <button
+              onClick={() => onSearchChange("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 向きフィルター */}
       <div className="flex items-center gap-0.5 bg-gray-800 rounded-lg p-0.5">

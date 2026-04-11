@@ -2,15 +2,34 @@
 
 import { useState, useRef, useEffect } from "react";
 
-type Command = "scan" | "classify" | "auto" | "quality" | "upscale";
+type Command = "scan" | "analyze" | "auto" | "upscale";
 type Status = "idle" | "running" | "done" | "error";
 
-const COMMANDS: { id: Command; label: string; desc: string }[] = [
-  { id: "scan", label: "スキャン", desc: "画像の統計・概要を表示" },
-  { id: "classify", label: "AI分類", desc: "未分類画像をOllamaで分類" },
-  { id: "quality", label: "AI品質チェック", desc: "不要・低品質画像をOllamaで判定" },
-  { id: "auto", label: "全自動更新", desc: "移動 → 分類 → フォルダ整理" },
-  { id: "upscale", label: "高画質化", desc: "Upscaylで画像をアップスケール" },
+type Section = {
+  label: string;
+  commands: { id: Command; label: string; desc: string }[];
+};
+
+const SECTIONS: Section[] = [
+  {
+    label: "ライブラリ",
+    commands: [
+      { id: "scan", label: "スキャン", desc: "画像の統計・概要を表示" },
+      { id: "auto", label: "全自動更新", desc: "移動 → 分類 → フォルダ整理" },
+    ],
+  },
+  {
+    label: "AI処理",
+    commands: [
+      { id: "analyze", label: "AI一括処理", desc: "分類 → 品質チェック → キャプション → ベクトル化" },
+    ],
+  },
+  {
+    label: "編集",
+    commands: [
+      { id: "upscale", label: "高画質化", desc: "Upscaylで画像をアップスケール" },
+    ],
+  },
 ];
 
 const UPSCALE_MODELS = [
@@ -50,7 +69,7 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
   }, [lines, logOpen]);
 
   const run = (command: Command, opts?: Record<string, unknown>) => {
-    const label = COMMANDS.find((c) => c.id === command)?.label ?? command;
+    const label = SECTIONS.flatMap((s) => s.commands).find((c) => c.id === command)?.label ?? command;
     setMenuOpen(false);
     setUpscaleOpen(false);
     setLines([]);
@@ -141,22 +160,30 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
       {/* コマンド選択ドロップアップ */}
       {menuOpen && (
         <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-20">
-          {COMMANDS.map((cmd) => (
-            <button
-              key={cmd.id}
-              onClick={() => {
-                if (cmd.id === "upscale") {
-                  setMenuOpen(false);
-                  setUpscaleOpen(true);
-                } else {
-                  run(cmd.id);
-                }
-              }}
-              className="w-full flex flex-col items-start px-3 py-2.5 hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-0"
-            >
-              <span className="text-sm font-medium text-gray-100">{cmd.label}</span>
-              <span className="text-xs text-gray-400 mt-0.5">{cmd.desc}</span>
-            </button>
+          {SECTIONS.map((section, si) => (
+            <div key={section.label}>
+              {si > 0 && <div className="border-t border-gray-600" />}
+              <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                {section.label}
+              </div>
+              {section.commands.map((cmd) => (
+                <button
+                  key={cmd.id}
+                  onClick={() => {
+                    if (cmd.id === "upscale") {
+                      setMenuOpen(false);
+                      setUpscaleOpen(true);
+                    } else {
+                      run(cmd.id);
+                    }
+                  }}
+                  className="w-full flex flex-col items-start px-3 py-2 hover:bg-gray-700 transition-colors"
+                >
+                  <span className="text-sm font-medium text-gray-100">{cmd.label}</span>
+                  <span className="text-xs text-gray-400 mt-0.5">{cmd.desc}</span>
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}

@@ -19,6 +19,7 @@ type Props = {
 type ThumbnailProps = {
   image: ImageItem;
   index: number;
+  priority: boolean;
   selectMode: boolean;
   selected: boolean;
   onImageClick: (index: number) => void;
@@ -36,7 +37,7 @@ const COL_CLASS: Record<number, string> = {
 };
 
 function Thumbnail({
-  image, index, selectMode, selected,
+  image, index, priority, selectMode, selected,
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
 }: ThumbnailProps) {
   const [loaded, setLoaded] = useState(false);
@@ -71,7 +72,10 @@ function Thumbnail({
           <img
             src={src}
             alt={image.filename}
-            className={`w-full h-auto block transition-all duration-200 group-hover:scale-105 ${
+            loading={priority ? "eager" : "lazy"}
+            decoding="async"
+            fetchPriority={priority ? "high" : "low"}
+            className={`w-full h-auto block transition-opacity duration-300 group-hover:scale-105 ${
               loaded ? "opacity-100" : "opacity-0 absolute inset-0"
             } ${selectMode && selected ? "opacity-70" : ""}`}
             onLoad={(e) => {
@@ -147,6 +151,9 @@ export default function ImageGrid({
     );
   }
 
+  // 最初の2行分（columns × 2）はビューポート内として eager ロード
+  const PRIORITY_COUNT = columns * 2;
+
   return (
     <div className={`${colClass} gap-1`}>
       {images.map((image, index) => (
@@ -154,6 +161,7 @@ export default function ImageGrid({
           <Thumbnail
             image={image}
             index={index}
+            priority={index < PRIORITY_COUNT}
             selectMode={selectMode}
             selected={selectedPaths.has(image.path)}
             onImageClick={onImageClick}

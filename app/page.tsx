@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { ImageItem, FolderInfo } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
@@ -39,6 +39,13 @@ export default function Home() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
+  // AI 検索状態
+  const [aiMode, setAiMode] = useState(false);
+  const [aiSearching, setAiSearching] = useState(false);
+  const [aiResults, setAiResults] = useState<ImageItem[] | null>(null);
+  const [aiResultCount, setAiResultCount] = useState<number | null>(null);
+  const [similarTarget, setSimilarTarget] = useState<string | null>(null);
+
   const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   useEffect(() => {
@@ -67,17 +74,39 @@ export default function Home() {
     if (!selectMode) setSelectedPaths(new Set());
   }, [selectMode]);
 
+  // 画像ロードごとの setDimensionMap を rAF でまとめて1回の setState に
+  const pendingDims = useRef<Map<string, { w: number; h: number }>>(new Map());
+  const rafRef = useRef<number | null>(null);
+
   const handleDimensionLoad = useCallback((path: string, w: number, h: number) => {
-    setDimensionMap((prev) => {
-      if (prev.get(path)?.w === w && prev.get(path)?.h === h) return prev;
-      const next = new Map(prev);
-      next.set(path, { w, h });
-      return next;
+    pendingDims.current.set(path, { w, h });
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const updates = new Map(pendingDims.current);
+      pendingDims.current.clear();
+      setDimensionMap((prev) => {
+        let changed = false;
+        for (const [k, v] of updates) {
+          if (prev.get(k)?.w !== v.w || prev.get(k)?.h !== v.h) { changed = true; break; }
+        }
+        if (!changed) return prev;
+        const next = new Map(prev);
+        updates.forEach((v, k) => next.set(k, v));
+        return next;
+      });
     });
   }, []);
 
+  // AI モードのときは aiResults を優先
+  const displayImages = useMemo(() => {
+    if (aiMode && aiResults !== null) return aiResults;
+    return null; // null = 通常モードへフォールバック
+  }, [aiMode, aiResults]);
+
   // フィルタ + ソート済み画像
   const filteredImages = useMemo(() => {
+    if (displayImages !== null) return displayImages;
     const q = search.trim().toLowerCase();
     let filtered = q
       ? images.filter(
@@ -150,6 +179,72 @@ export default function Home() {
     setSortDir(dir);
   }, []);
 
+  // AI セマンティック検索
+  const handleAiSearch = useCallback(async (q: string) => {
+    setAiSearching(true);
+    setAiResults(null);
+    setAiResultCount(null);
+    setSimilarTarget(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/images/search?q=${encodeURIComponent(q)}&limit=40`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        // path を元に images 配列とマージしてスコア順で返す
+        const pathOrder = new Map<string, number>(
+          data.map((r: { path: string; score: number }, i: number) => [r.path, i])
+        );
+        const matched = images
+          .filter((img) => pathOrder.has(img.path))
+          .sort((a, b) => (pathOrder.get(a.path) ?? 999) - (pathOrder.get(b.path) ?? 999));
+        setAiResults(matched);
+        setAiResultCount(matched.length);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAiSearching(false);
+    }
+  }, [images]);
+
+  // 類似画像検索
+  const handleFindSimilar = useCallback(async (imagePath: string) => {
+    setAiMode(true);
+    setAiSearching(true);
+    setAiResults(null);
+    setAiResultCount(null);
+    setSimilarTarget(imagePath);
+    setLightboxIndex(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/images/similar?path=${encodeURIComponent(imagePath)}&limit=24`);
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        const pathOrder = new Map<string, number>(
+          data.map((r: { path: string }, i: number) => [r.path, i])
+        );
+        const matched = images
+          .filter((img) => pathOrder.has(img.path))
+          .sort((a, b) => (pathOrder.get(a.path) ?? 999) - (pathOrder.get(b.path) ?? 999));
+        setAiResults(matched);
+        setAiResultCount(matched.length);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAiSearching(false);
+    }
+  }, [images]);
+
+  const handleAiModeToggle = useCallback(() => {
+    setAiMode((v) => {
+      if (v) {
+        setAiResults(null);
+        setAiResultCount(null);
+        setSimilarTarget(null);
+      }
+      return !v;
+    });
+  }, []);
+
   return (
     <div className="flex h-full overflow-hidden">
       <Sidebar
@@ -166,11 +261,15 @@ export default function Home() {
         <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 pt-4 pb-3">
           <div className="mb-2 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-100">
-              {selectedFolder ?? "All"}
+              {aiMode && similarTarget
+                ? `類似: ${similarTarget.split("/").pop()}`
+                : aiMode
+                ? "AI 検索"
+                : (selectedFolder ?? "All")}
             </h1>
             {!loadingImages && (
               <span className="text-sm text-gray-400">
-                {filteredImages.length}{search ? ` / ${images.length}` : ""} images
+                {filteredImages.length}{!aiMode && search ? ` / ${images.length}` : ""} images
               </span>
             )}
           </div>
@@ -189,6 +288,11 @@ export default function Home() {
             selectedCount={selectedPaths.size}
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             onBulkDelete={handleBulkDelete}
+            aiMode={aiMode}
+            aiSearching={aiSearching}
+            aiResultCount={aiResultCount}
+            onAiModeToggle={handleAiModeToggle}
+            onAiSearch={handleAiSearch}
           />
         </div>
 
@@ -218,6 +322,7 @@ export default function Home() {
           onPrev={handleLightboxPrev}
           onNext={handleLightboxNext}
           onDelete={handleDeleteRequest}
+          onFindSimilar={handleFindSimilar}
         />
       )}
 

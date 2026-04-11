@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
 
-const ALLOWED_COMMANDS = ["scan", "classify", "auto", "quality", "upscale"] as const;
+const ALLOWED_COMMANDS = ["scan", "auto", "upscale", "analyze", "classify", "quality", "caption", "embed"] as const;
 type Command = (typeof ALLOWED_COMMANDS)[number];
 
 const TOOLS_DIR = path.join(process.cwd(), "tools");
