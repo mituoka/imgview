@@ -259,7 +259,7 @@ export default function CleanupPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {/* ヘッダー */}
-      <div className="bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-4">
+      <div className="sticky top-0 z-10 bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center gap-4">
         <Link href="/" className="text-gray-400 hover:text-gray-100 transition-colors text-sm">
           ← 戻る
         </Link>
@@ -267,7 +267,7 @@ export default function CleanupPage() {
       </div>
 
       {/* タブ */}
-      <div className="border-b border-gray-800 px-6">
+      <div className="sticky top-[61px] z-10 bg-gray-950 border-b border-gray-800 px-6">
         <div className="flex gap-0">
           {(["dupes", "quality"] as const).map((t) => (
             <button

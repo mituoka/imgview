@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { spawn } from "child_process";
 import path from "path";
 
-const ALLOWED_COMMANDS = ["scan", "classify", "auto", "quality"] as const;
+const ALLOWED_COMMANDS = ["scan", "classify", "auto", "quality", "upscale"] as const;
 type Command = (typeof ALLOWED_COMMANDS)[number];
 
 const TOOLS_DIR = path.join(process.cwd(), "tools");
@@ -20,6 +20,22 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // upscale オプション
+  const extraArgs: string[] = [];
+  if (command === "upscale") {
+    if (body.model) extraArgs.push("--model", body.model);
+    if (body.scale) extraArgs.push("--scale", String(body.scale));
+    // 単一ファイル指定（Lightbox からの実行）
+    if (body.file) {
+      const { resolve, join } = await import("path");
+      const root = resolve(process.env.IMAGES_DIR ?? join(process.env.HOME ?? "", "dev", "images"));
+      const fullPath = resolve(root, body.file);
+      if (fullPath.startsWith(root)) extraArgs.push("--source", fullPath);
+    } else if (body.folder) {
+      extraArgs.push("--folder", body.folder);
+    }
+  }
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -35,7 +51,7 @@ export async function POST(req: NextRequest) {
         controller.close();
       };
 
-      const proc = spawn(PYTHON, [SCRIPT, command], {
+      const proc = spawn(PYTHON, [SCRIPT, command, ...extraArgs], {
         cwd: path.dirname(SCRIPT),
         env: { ...process.env, PATH: `${path.join(TOOLS_DIR, ".venv/bin")}:${process.env.PATH}`, IMAGES_DIR: process.env.IMAGES_DIR ?? "" },
       });

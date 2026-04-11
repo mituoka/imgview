@@ -28,11 +28,11 @@ type ThumbnailProps = {
   apiBase: string;
 };
 
-const GRID_COLS: Record<number, string> = {
-  2: "grid-cols-2",
-  3: "grid-cols-3",
-  4: "grid-cols-4",
-  5: "grid-cols-5",
+const COL_CLASS: Record<number, string> = {
+  2: "columns-2",
+  3: "columns-3",
+  4: "columns-4",
+  5: "columns-5",
 };
 
 function Thumbnail({
@@ -58,7 +58,7 @@ function Thumbnail({
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
-      className={`relative aspect-square bg-gray-800 overflow-hidden group cursor-pointer outline-none ${
+      className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none ${
         selectMode && selected
           ? "ring-2 ring-blue-500"
           : "focus-visible:ring-2 focus-visible:ring-blue-500"
@@ -66,13 +66,13 @@ function Thumbnail({
     >
       {!error ? (
         <>
-          {!loaded && <div className="absolute inset-0 bg-gray-800 animate-pulse" />}
+          {!loaded && <div className="w-full aspect-square bg-gray-800 animate-pulse" />}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
             alt={image.filename}
-            className={`w-full h-full object-cover transition-all duration-200 group-hover:scale-105 ${
-              loaded ? "opacity-100" : "opacity-0"
+            className={`w-full h-auto block transition-all duration-200 group-hover:scale-105 ${
+              loaded ? "opacity-100" : "opacity-0 absolute inset-0"
             } ${selectMode && selected ? "opacity-70" : ""}`}
             onLoad={(e) => {
               setLoaded(true);
@@ -83,7 +83,7 @@ function Thumbnail({
           />
         </>
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-800">
+        <div className="w-full aspect-square flex items-center justify-center bg-gray-800">
           <span className="text-gray-500 text-xs text-center px-2">{image.filename}</span>
         </div>
       )}
@@ -123,13 +123,17 @@ export default function ImageGrid({
   images, loading, columns, selectMode, selectedPaths,
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
 }: Props) {
-  const colClass = GRID_COLS[columns] ?? "grid-cols-3";
+  const colClass = COL_CLASS[columns] ?? "columns-3";
 
   if (loading) {
     return (
-      <div className={`grid ${colClass} gap-1`}>
-        {[...Array(columns * 4)].map((_, i) => (
-          <div key={i} className="aspect-square bg-gray-800 animate-pulse" />
+      <div className={`${colClass} gap-1`}>
+        {[...Array(columns * 5)].map((_, i) => (
+          <div
+            key={i}
+            className="mb-1 bg-gray-800 animate-pulse"
+            style={{ aspectRatio: i % 3 === 0 ? "3/4" : i % 3 === 1 ? "4/3" : "1/1" }}
+          />
         ))}
       </div>
     );
@@ -144,20 +148,21 @@ export default function ImageGrid({
   }
 
   return (
-    <div className={`grid ${colClass} gap-1`}>
+    <div className={`${colClass} gap-1`}>
       {images.map((image, index) => (
-        <Thumbnail
-          key={image.id}
-          image={image}
-          index={index}
-          selectMode={selectMode}
-          selected={selectedPaths.has(image.path)}
-          onImageClick={onImageClick}
-          onDelete={onDelete}
-          onToggleSelect={onToggleSelect}
-          onDimensionLoad={onDimensionLoad}
-          apiBase={apiBase}
-        />
+        <div key={image.id} className="mb-1 break-inside-avoid">
+          <Thumbnail
+            image={image}
+            index={index}
+            selectMode={selectMode}
+            selected={selectedPaths.has(image.path)}
+            onImageClick={onImageClick}
+            onDelete={onDelete}
+            onToggleSelect={onToggleSelect}
+            onDimensionLoad={onDimensionLoad}
+            apiBase={apiBase}
+          />
+        </div>
       ))}
     </div>
   );

@@ -41,6 +41,9 @@ BASE_DIR = Path(os.environ.get("IMAGES_DIR", str(Path.home() / "dev" / "images")
 DOWNLOAD_DIR = Path.home() / "dev" / "download"  # 固定のダウンロードフォルダ
 MAC_DOWNLOADS_DIR = Path.home() / "Downloads"  # Macの標準ダウンロードフォルダ
 CACHE_FILE = BASE_DIR / ".imgtools_cache.json"
+UPSCAYL_BIN = Path("/Applications/Upscayl.app/Contents/Resources/bin/upscayl-bin")
+UPSCAYL_MODELS = Path("/Applications/Upscayl.app/Contents/Resources/models")
+UPSCAYL_DEFAULT_MODEL = "upscayl-standard-4x"
 OLLAMA_URL = "http://localhost:11434"
 VISION_MODEL = "llava:7b"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".heic", ".svg"}
@@ -899,6 +902,144 @@ JSON:"""
     print("Web UIの「クリーンアップ」ページで確認・削除できます。")
 
 
+def cmd_upscale(args):
+    """Upscayl で画像を高画質化"""
+    if not UPSCAYL_BIN.exists():
+        print("Error: Upscayl が見つかりません。")
+        print("  https://upscayl.org からインストールしてください。")
+        return
+
+    model = args.model
+    scale = args.scale
+
+    # 利用可能なモデルを表示
+    if args.list_models:
+        models = sorted(p.stem for p in UPSCAYL_MODELS.glob("*.param"))
+        print("\n利用可能なモデル:")
+        for m in models:
+            mark = " ← default" if m == UPSCAYL_DEFAULT_MODEL else ""
+            print(f"  {m}{mark}")
+        return
+
+    # 対象画像の決定
+    if args.source:
+        target = Path(args.source).resolve()
+        if target.is_file():
+            images = [target]  # 単一ファイル指定
+        else:
+            images = find_images(target, recursive=not args.no_recursive)
+    elif args.folder:
+        images = find_images(BASE_DIR / args.folder, recursive=True)
+    else:
+        images = find_images(BASE_DIR)
+
+    # HEIC/SVG/GIF は upscayl-bin が非対応なので除外
+    unsupported = {".heic", ".heif", ".svg", ".gif"}
+    images = [img for img in images if img.suffix.lower() not in unsupported]
+
+    if not images:
+        print("対象画像が見つかりませんでした。")
+        return
+
+    # 出力ディレクトリ
+    out_dir = Path(args.output) if args.output else None
+
+    # 既にアップスケール済みのものをスキップ（最終ファイルが存在し、かつ元が jpg なら同名なので除外しない）
+    if not args.force:
+        def is_done(img: Path) -> bool:
+            final = _upscale_final(img, out_dir)
+            # 元ファイルと最終ファイルが同じパス（例: img.jpg → img.jpg）の場合はスキップ不可
+            if final == img:
+                return False
+            return final.exists()
+        before = len(images)
+        images = [img for img in images if not is_done(img)]
+        skipped = before - len(images)
+        if skipped:
+            print(f"  {skipped} 枚はスキップ（処理済み）。--force で再処理できます。")
+
+    if not images:
+        print("処理する画像がありません（すべて処理済み）。")
+        return
+
+    print(f"\n{'=' * 55}")
+    print(f"  🔍 Upscayl 高画質化: {len(images)} 枚")
+    print(f"  モデル : {model}")
+    print(f"  スケール: ×{scale}")
+    if out_dir:
+        print(f"  出力先 : {out_dir}")
+    if args.dry_run:
+        print(f"  [DRY RUN]")
+    print(f"{'=' * 55}\n")
+
+    if args.dry_run:
+        for img in images:
+            final = _upscale_final(img, out_dir)
+            print(f"  [DRY] {img.name} → {final.name} (元ファイル削除)")
+        return
+
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    import subprocess
+    done = 0
+    for i, img in enumerate(images):
+        dest = _upscale_dest(img, out_dir)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        print(f"  [{i + 1}/{len(images)}] {img.name} → {dest.name} ... ", end="", flush=True)
+        try:
+            result = subprocess.run(
+                [
+                    str(UPSCAYL_BIN),
+                    "-i", str(img),
+                    "-o", str(dest),
+                    "-m", str(UPSCAYL_MODELS),
+                    "-n", model,
+                    "-s", str(scale),
+                    "-f", "jpg",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            if result.returncode == 0 and dest.exists():
+                size_before = img.stat().st_size
+                size_after = dest.stat().st_size
+                # 元ファイルを削除してから _upscaled サフィックスなしにリネーム
+                final = dest.parent / (img.stem + ".jpg")
+                img.unlink()
+                dest.rename(final)
+                print(f"✓ ({_fmt_size(size_before)} → {_fmt_size(size_after)})")
+                done += 1
+            else:
+                err = result.stderr.strip().splitlines()[-1] if result.stderr.strip() else "unknown error"
+                print(f"ERROR: {err}")
+        except subprocess.TimeoutExpired:
+            print("TIMEOUT")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    print(f"\n完了: {done}/{len(images)} 枚を高画質化しました。")
+
+
+def _upscale_dest(img: Path, out_dir: Path | None) -> Path:
+    """upscayl-bin への出力パス（一時的に _upscaled サフィックスを使う）"""
+    dest_dir = out_dir if out_dir else img.parent
+    return dest_dir / f"{img.stem}_upscaled.jpg"
+
+
+def _upscale_final(img: Path, out_dir: Path | None) -> Path:
+    """アップスケール完了後の最終ファイルパス（元ファイル名.jpg）"""
+    dest_dir = out_dir if out_dir else img.parent
+    return dest_dir / f"{img.stem}.jpg"
+
+
+def _fmt_size(n: int) -> str:
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
 # ─── メイン ─────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
@@ -947,6 +1088,20 @@ def main():
     p_quality.add_argument("--include-download", action="store_true",
                            help=f"~/dev/download と ~/Downloads も対象にする")
 
+    # upscale コマンド
+    p_upscale = sub.add_parser("upscale", help="Upscayl で画像を高画質化")
+    p_upscale.add_argument("--model", default=UPSCAYL_DEFAULT_MODEL,
+                           help=f"使用モデル (デフォルト: {UPSCAYL_DEFAULT_MODEL})")
+    p_upscale.add_argument("--scale", type=int, default=4, choices=[2, 3, 4],
+                           help="拡大倍率 (デフォルト: 4)")
+    p_upscale.add_argument("--source", help="対象ディレクトリを直接指定")
+    p_upscale.add_argument("--folder", help="IMAGES_DIR 内のサブフォルダを指定")
+    p_upscale.add_argument("--output", "-o", help="出力先ディレクトリ (デフォルト: 元ファイルと同じ場所に _upscaled を付加)")
+    p_upscale.add_argument("--no-recursive", action="store_true", help="サブフォルダを含めない")
+    p_upscale.add_argument("--force", action="store_true", help="処理済みも再処理")
+    p_upscale.add_argument("--dry-run", action="store_true", help="プレビューのみ")
+    p_upscale.add_argument("--list-models", action="store_true", help="利用可能なモデル一覧を表示")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -962,6 +1117,7 @@ def main():
         "organize": cmd_organize,
         "stats": cmd_stats,
         "quality": cmd_quality,
+        "upscale": cmd_upscale,
     }
 
     commands[args.command](args)

@@ -159,6 +159,7 @@ export default function Home() {
         onSelectFolder={setSelectedFolder}
         loading={loadingFolders}
         onRefresh={handleRefresh}
+        currentFolder={selectedFolder}
       />
 
       <main className="flex-1 overflow-y-auto">

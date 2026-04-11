@@ -30,6 +30,39 @@ export default function Lightbox({
   const [playing, setPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 高画質化
+  const [upscaleStatus, setUpscaleStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const runUpscale = useCallback(async () => {
+    setUpscaleStatus("running");
+    try {
+      const res = await fetch(`${apiBase}/api/run-imgtools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "upscale", file: image.path }),
+      });
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const parts = buf.split("\n\n");
+        buf = parts.pop() ?? "";
+        for (const part of parts) {
+          const raw = part.replace(/^data: /, "").trim();
+          if (!raw) continue;
+          try {
+            const msg = JSON.parse(raw);
+            if (msg.done) setUpscaleStatus(msg.exitCode === 0 ? "done" : "error");
+          } catch { /* ignore */ }
+        }
+      }
+    } catch {
+      setUpscaleStatus("error");
+    }
+  }, [apiBase, image.path]);
+
   // ── ズーム state ──────────────────────────────────────────
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,9 +70,10 @@ export default function Lightbox({
   const dragStart = useRef({ mx: 0, my: 0, ox: 0, oy: 0 });
   const isZoomed = view.zoom > 1.001;
 
-  // 画像が変わったらズームリセット
+  // 画像が変わったらリセット
   useEffect(() => {
     setView({ zoom: 1, x: 0, y: 0 });
+    setUpscaleStatus("idle");
   }, [image.path]);
 
   // ホイールズーム（カーソル位置を中心に）
@@ -201,6 +235,30 @@ export default function Lightbox({
             }`}
           >
             {playing ? "⏸ 停止" : "▶ スライドショー"}
+          </button>
+          <button
+            onClick={runUpscale}
+            disabled={upscaleStatus === "running" || upscaleStatus === "done"}
+            title="Upscaylで高画質化（元ファイルは置き換えられます）"
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors disabled:cursor-not-allowed ${
+              upscaleStatus === "running"
+                ? "bg-purple-700 text-purple-200"
+                : upscaleStatus === "done"
+                ? "bg-green-700 text-green-200"
+                : upscaleStatus === "error"
+                ? "bg-red-700/80 hover:bg-red-600 text-white"
+                : "bg-gray-700 hover:bg-gray-600 text-gray-300"
+            }`}
+          >
+            {upscaleStatus === "running" && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" />
+                高画質化中...
+              </span>
+            )}
+            {upscaleStatus === "done" && "✓ 高画質化済み"}
+            {upscaleStatus === "error" && "✗ 再試行"}
+            {upscaleStatus === "idle" && "高画質化"}
           </button>
           <button
             onClick={() => onDelete(image)}

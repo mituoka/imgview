@@ -12,6 +12,7 @@ type Props = {
   onSelectFolder: (folder: string | null) => void;
   loading: boolean;
   onRefresh: () => void;
+  currentFolder: string | null;
 };
 
 function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
@@ -67,6 +68,7 @@ export default function Sidebar({
   onSelectFolder,
   loading,
   onRefresh,
+  currentFolder,
 }: Props) {
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
@@ -134,7 +136,7 @@ export default function Sidebar({
         >
           クリーンアップ
         </Link>
-        <RunImgtoolsPanel onComplete={onRefresh} />
+        <RunImgtoolsPanel onComplete={onRefresh} currentFolder={currentFolder} />
       </div>
     </aside>
   );

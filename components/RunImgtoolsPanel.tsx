@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 
-type Command = "scan" | "classify" | "auto" | "quality";
+type Command = "scan" | "classify" | "auto" | "quality" | "upscale";
 type Status = "idle" | "running" | "done" | "error";
 
 const COMMANDS: { id: Command; label: string; desc: string }[] = [
@@ -10,13 +10,25 @@ const COMMANDS: { id: Command; label: string; desc: string }[] = [
   { id: "classify", label: "AI分類", desc: "未分類画像をOllamaで分類" },
   { id: "quality", label: "AI品質チェック", desc: "不要・低品質画像をOllamaで判定" },
   { id: "auto", label: "全自動更新", desc: "移動 → 分類 → フォルダ整理" },
+  { id: "upscale", label: "高画質化", desc: "Upscaylで画像をアップスケール" },
+];
+
+const UPSCALE_MODELS = [
+  { id: "upscayl-standard-4x", label: "Standard（写真向け）" },
+  { id: "ultrasharp-4x", label: "Ultra Sharp" },
+  { id: "high-fidelity-4x", label: "High Fidelity" },
+  { id: "remacri-4x", label: "Remacri" },
+  { id: "ultramix-balanced-4x", label: "Ultramix Balanced" },
+  { id: "digital-art-4x", label: "Digital Art（イラスト向け）" },
+  { id: "upscayl-lite-4x", label: "Lite（軽量）" },
 ];
 
 type Props = {
   onComplete: () => void;
+  currentFolder?: string | null;
 };
 
-export default function RunImgtoolsPanel({ onComplete }: Props) {
+export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -25,27 +37,34 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
   const [exitCode, setExitCode] = useState<number | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
+  // upscale オプション
+  const [upscaleOpen, setUpscaleOpen] = useState(false);
+  const [upscaleModel, setUpscaleModel] = useState("upscayl-standard-4x");
+  const [upscaleScale, setUpscaleScale] = useState(4);
+  const [upscaleFolder, setUpscaleFolder] = useState<"current" | "all">("current");
+
   useEffect(() => {
     if (logOpen && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
   }, [lines, logOpen]);
 
-  const run = (command: Command) => {
+  const run = (command: Command, opts?: Record<string, unknown>) => {
     const label = COMMANDS.find((c) => c.id === command)?.label ?? command;
     setMenuOpen(false);
+    setUpscaleOpen(false);
     setLines([]);
     setExitCode(null);
     setStatus("running");
     setRunningLabel(label);
+    setLogOpen(true);
 
-    // バックグラウンドで実行 — awaitしない
     (async () => {
       try {
         const res = await fetch("/api/run-imgtools", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ command }),
+          body: JSON.stringify({ command, ...opts }),
         });
 
         const reader = res.body!.getReader();
@@ -65,17 +84,13 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
             if (!raw) continue;
             try {
               const msg = JSON.parse(raw);
-              if (msg.line !== undefined) {
-                setLines((prev) => [...prev, msg.line]);
-              }
+              if (msg.line !== undefined) setLines((prev) => [...prev, msg.line]);
               if (msg.done) {
                 setExitCode(msg.exitCode);
                 setStatus(msg.exitCode === 0 ? "done" : "error");
                 if (msg.exitCode === 0) onComplete();
               }
-            } catch {
-              // ignore
-            }
+            } catch { /* ignore */ }
           }
         }
       } catch (e) {
@@ -85,11 +100,14 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
     })();
   };
 
+  const runUpscale = () => {
+    const folder = upscaleFolder === "current" && currentFolder ? currentFolder : undefined;
+    run("upscale", { model: upscaleModel, scale: upscaleScale, folder });
+  };
+
   const statusIcon = {
     idle: null,
-    running: (
-      <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-    ),
+    running: <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />,
     done: <span className="text-green-400 text-xs">✓</span>,
     error: <span className="text-red-400 text-xs">✗</span>,
   }[status];
@@ -99,14 +117,13 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
       {/* メインボタン行 */}
       <div className="flex items-center gap-1">
         <button
-          onClick={() => setMenuOpen((v) => !v)}
+          onClick={() => { setMenuOpen((v) => !v); setUpscaleOpen(false); }}
           disabled={status === "running"}
           className="flex-1 flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <span>imgtools 実行</span>
         </button>
 
-        {/* ステータスバッジ — クリックでログ展開 */}
         {status !== "idle" && (
           <button
             onClick={() => setLogOpen((v) => !v)}
@@ -127,7 +144,14 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
           {COMMANDS.map((cmd) => (
             <button
               key={cmd.id}
-              onClick={() => run(cmd.id)}
+              onClick={() => {
+                if (cmd.id === "upscale") {
+                  setMenuOpen(false);
+                  setUpscaleOpen(true);
+                } else {
+                  run(cmd.id);
+                }
+              }}
               className="w-full flex flex-col items-start px-3 py-2.5 hover:bg-gray-700 transition-colors border-b border-gray-700 last:border-0"
             >
               <span className="text-sm font-medium text-gray-100">{cmd.label}</span>
@@ -137,28 +161,97 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
         </div>
       )}
 
-      {/* ログパネル（インライン展開） */}
+      {/* 高画質化オプションパネル */}
+      {upscaleOpen && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-100">高画質化オプション</span>
+            <button onClick={() => setUpscaleOpen(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+          </div>
+
+          {/* モデル選択 */}
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">モデル</label>
+            <select
+              value={upscaleModel}
+              onChange={(e) => setUpscaleModel(e.target.value)}
+              className="w-full bg-gray-900 text-gray-200 text-xs rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              {UPSCALE_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* スケール選択 */}
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">拡大倍率</label>
+            <div className="flex gap-1">
+              {[2, 3, 4].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setUpscaleScale(s)}
+                  className={`flex-1 py-1 rounded text-xs transition-colors ${
+                    upscaleScale === s
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                  }`}
+                >
+                  ×{s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 対象フォルダ */}
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">対象</label>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setUpscaleFolder("current")}
+                disabled={!currentFolder}
+                className={`flex-1 py-1 rounded text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  upscaleFolder === "current"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                }`}
+              >
+                {currentFolder ?? "現在のフォルダ"}
+              </button>
+              <button
+                onClick={() => setUpscaleFolder("all")}
+                className={`flex-1 py-1 rounded text-xs transition-colors ${
+                  upscaleFolder === "all"
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                }`}
+              >
+                全画像
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={runUpscale}
+            className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded transition-colors"
+          >
+            実行
+          </button>
+        </div>
+      )}
+
+      {/* ログパネル */}
       {logOpen && (
         <div className="mt-1 bg-gray-950 border border-gray-700 rounded-lg overflow-hidden">
           <div className="flex items-center justify-between px-2 py-1 border-b border-gray-700">
             <span className="text-xs text-gray-400">{runningLabel}</span>
-            <button
-              onClick={() => setLogOpen(false)}
-              className="text-gray-500 hover:text-gray-300 text-xs"
-            >
-              ✕
-            </button>
+            <button onClick={() => setLogOpen(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
           </div>
-          <div
-            ref={logRef}
-            className="p-2 font-mono text-xs text-gray-300 max-h-48 overflow-y-auto"
-          >
+          <div ref={logRef} className="p-2 font-mono text-xs text-gray-300 max-h-48 overflow-y-auto">
             {lines.map((line, i) => (
               <div key={i} className="whitespace-pre-wrap leading-5">{line}</div>
             ))}
-            {status === "running" && (
-              <div className="text-blue-400 animate-pulse">▌</div>
-            )}
+            {status === "running" && <div className="text-blue-400 animate-pulse">▌</div>}
             {status !== "running" && exitCode !== null && (
               <div className={`mt-1 font-bold ${exitCode === 0 ? "text-green-400" : "text-red-400"}`}>
                 {exitCode === 0 ? "✓ 完了" : `✗ エラー (exit ${exitCode})`}
@@ -168,9 +261,8 @@ export default function RunImgtoolsPanel({ onComplete }: Props) {
         </div>
       )}
 
-      {/* メニュー外クリックで閉じる */}
-      {menuOpen && (
-        <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+      {(menuOpen || upscaleOpen) && (
+        <div className="fixed inset-0 z-10" onClick={() => { setMenuOpen(false); setUpscaleOpen(false); }} />
       )}
     </div>
   );
