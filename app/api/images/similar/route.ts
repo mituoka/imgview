@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
   // パストラバーサル対策
   const root = pathResolve(process.env.IMAGES_DIR ?? join(process.env.HOME ?? "", "dev", "images"));
   const full = pathResolve(root, imagePath);
-  if (!full.startsWith(root)) {
+  if (full !== root && !full.startsWith(root + path.sep)) {
     return NextResponse.json({ error: "Invalid path" }, { status: 400 });
   }
 
@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
           resolve(NextResponse.json(data));
         }
       } catch {
-        resolve(NextResponse.json({ error: "Parse error", stderr }, { status: 500 }));
+        if (process.env.NODE_ENV === "development") console.error("[similar] stderr:", stderr);
+        resolve(NextResponse.json({ error: "Parse error" }, { status: 500 }));
       }
     });
 

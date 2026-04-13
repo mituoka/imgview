@@ -22,9 +22,14 @@ function findImages(dir: string): string[] {
   return results;
 }
 
-function md5(filePath: string): string {
-  const data = fs.readFileSync(filePath);
-  return crypto.createHash("md5").update(data).digest("hex");
+function md5(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash("md5");
+    const stream = fs.createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+    stream.on("error", reject);
+  });
 }
 
 export type DupeGroup = {
@@ -36,15 +41,29 @@ export type DupeGroup = {
 export async function GET(_req: NextRequest) {
   const allImages = findImages(IMAGES_ROOT);
 
-  const hashMap = new Map<string, string[]>();
+  // 同じファイルサイズのグループだけハッシュ対象にする
+  const sizeGroups = new Map<number, string[]>();
   for (const imgPath of allImages) {
     try {
-      const hash = md5(imgPath);
-      const group = hashMap.get(hash) ?? [];
+      const { size } = fs.statSync(imgPath);
+      const group = sizeGroups.get(size) ?? [];
       group.push(imgPath);
-      hashMap.set(hash, group);
-    } catch {
-      // skip unreadable files
+      sizeGroups.set(size, group);
+    } catch { /* skip */ }
+  }
+
+  const hashMap = new Map<string, string[]>();
+  for (const [, paths] of sizeGroups) {
+    if (paths.length < 2) continue; // サイズが一意なファイルはスキップ
+    for (const imgPath of paths) {
+      try {
+        const hash = await md5(imgPath);
+        const group = hashMap.get(hash) ?? [];
+        group.push(imgPath);
+        hashMap.set(hash, group);
+      } catch {
+        // skip unreadable files
+      }
     }
   }
 

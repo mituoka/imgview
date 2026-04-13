@@ -42,7 +42,8 @@ export async function GET(req: NextRequest) {
           resolve(NextResponse.json(data));
         }
       } catch {
-        resolve(NextResponse.json({ error: "Parse error", stderr }, { status: 500 }));
+        if (process.env.NODE_ENV === "development") console.error("[search] stderr:", stderr);
+        resolve(NextResponse.json({ error: "Parse error" }, { status: 500 }));
       }
     });
 

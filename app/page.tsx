@@ -118,6 +118,13 @@ export default function Home() {
     return filtered;
   }, [images, search, orientation, dimensionMap]);
 
+  // filteredImages が縮小したとき lightboxIndex を範囲内に収める
+  useEffect(() => {
+    if (lightboxIndex !== null && lightboxIndex >= filteredImages.length) {
+      setLightboxIndex(filteredImages.length > 0 ? filteredImages.length - 1 : null);
+    }
+  }, [filteredImages.length, lightboxIndex]);
+
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
 
   const handleImageClick = useCallback((index: number) => setLightboxIndex(index), []);
@@ -140,6 +147,7 @@ export default function Home() {
     setConfirmDelete(null);
     setLightboxIndex(null);
     setImages((prev) => prev.filter((img) => img.path !== p));
+    setAiResults((prev) => prev ? prev.filter((img) => img.path !== p) : null);
     setRefreshKey((k) => k + 1);
   }, [confirmDelete]);
 
@@ -154,11 +162,16 @@ export default function Home() {
   const handleBulkDelete = useCallback(async () => {
     if (selectedPaths.size === 0) return;
     if (!confirm(`${selectedPaths.size}枚の画像を削除しますか？`)) return;
-    for (const p of selectedPaths) {
-      await fetch(`${API_BASE}/api/images/file/${encodeURIComponent(p).replace(/%2F/g, "/")}`, {
-        method: "DELETE",
-      });
-    }
+    const paths = Array.from(selectedPaths);
+    await Promise.allSettled(
+      paths.map((p) =>
+        fetch(`${API_BASE}/api/images/file/${encodeURIComponent(p).replace(/%2F/g, "/")}`, {
+          method: "DELETE",
+        })
+      )
+    );
+    setImages((prev) => prev.filter((img) => !selectedPaths.has(img.path)));
+    setAiResults((prev) => prev ? prev.filter((img) => !selectedPaths.has(img.path)) : null);
     setSelectedPaths(new Set());
     setSelectMode(false);
     setRefreshKey((k) => k + 1);
