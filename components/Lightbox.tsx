@@ -13,10 +13,7 @@ type Props = {
   onPrev: () => void;
   onNext: () => void;
   onDelete: (image: ImageItem) => void;
-  onFindSimilar: (path: string) => void;
 };
-
-const SLIDESHOW_INTERVAL = 3000;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -26,11 +23,9 @@ function formatBytes(bytes: number): string {
 
 export default function Lightbox({
   image, index, total, apiBase,
-  onClose, onPrev, onNext, onDelete, onFindSimilar,
+  onClose, onPrev, onNext, onDelete,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
-  const [playing, setPlaying] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // QR共有
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -154,43 +149,14 @@ export default function Lightbox({
     setView({ zoom: 2.5, x: -mouseX * 1.5, y: -mouseY * 1.5 });
   }, [isZoomed]);
 
-  // ── スライドショー ────────────────────────────────────────
-  const stopSlideshow = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    setPlaying(false);
-  }, []);
-
-  const startSlideshow = useCallback(() => {
-    setPlaying(true);
-    intervalRef.current = setInterval(() => { onNext(); }, SLIDESHOW_INTERVAL);
-  }, [onNext]);
-
-  const toggleSlideshow = useCallback(() => {
-    playing ? stopSlideshow() : startSlideshow();
-  }, [playing, startSlideshow, stopSlideshow]);
-
-  const handlePrev = useCallback(() => {
-    if (playing) stopSlideshow();
-    onPrev();
-  }, [playing, stopSlideshow, onPrev]);
-
-  const handleNext = useCallback(() => {
-    if (playing) stopSlideshow();
-    onNext();
-  }, [playing, stopSlideshow, onNext]);
-
   // ── キーボード ────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === "Escape") {
       if (isZoomed) { setView({ zoom: 1, x: 0, y: 0 }); return; }
-      stopSlideshow(); onClose();
+      onClose();
     }
-    if (e.key === "ArrowLeft") handlePrev();
-    if (e.key === "ArrowRight") handleNext();
-    if (e.key === " ") { e.preventDefault(); toggleSlideshow(); }
+    if (e.key === "ArrowLeft") onPrev();
+    if (e.key === "ArrowRight") onNext();
     if (e.key === "+" || e.key === "=") {
       setView((prev) => {
         const newZoom = Math.min(prev.zoom * 1.3, 8);
@@ -204,7 +170,7 @@ export default function Lightbox({
       });
     }
     if (e.key === "0") setView({ zoom: 1, x: 0, y: 0 });
-  }, [isZoomed, onClose, handlePrev, handleNext, toggleSlideshow, stopSlideshow]);
+  }, [isZoomed, onClose, onPrev, onNext]);
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -212,17 +178,8 @@ export default function Lightbox({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
-      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [handleKeyDown]);
-
-  // スライドショー中に onNext が変わったらインターバル再設定
-  useEffect(() => {
-    if (!playing) return;
-    if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => { onNext(); }, SLIDESHOW_INTERVAL);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [playing, onNext]);
 
   return (
     <div
@@ -238,30 +195,12 @@ export default function Lightbox({
         <span className="text-gray-200 text-sm font-medium truncate mx-4 max-w-md">{image.filename}</span>
         <div className="flex items-center gap-2">
           <button
-            onClick={toggleSlideshow}
-            title={`スライドショー (Space) — ${SLIDESHOW_INTERVAL / 1000}秒`}
-            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-              playing
-                ? "bg-blue-600 text-white"
-                : "bg-gray-700 hover:bg-gray-600 text-gray-300"
-            }`}
-          >
-            {playing ? "⏸ 停止" : "▶ スライドショー"}
-          </button>
-          <button
             onClick={() => qrUrl ? setQrUrl(null) : showQr()}
             className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
               qrUrl ? "bg-blue-600 text-white" : "bg-gray-700 hover:bg-gray-600 text-gray-300"
             }`}
           >
             QR
-          </button>
-          <button
-            onClick={() => onFindSimilar(image.path)}
-            title="この画像に似た画像を探す"
-            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg transition-colors"
-          >
-            類似を探す
           </button>
           <button
             onClick={runUpscale}
@@ -294,7 +233,7 @@ export default function Lightbox({
             削除
           </button>
           <button
-            onClick={() => { stopSlideshow(); onClose(); }}
+            onClick={onClose}
             className="text-gray-400 hover:text-white transition-colors p-1"
             aria-label="Close"
           >
@@ -314,7 +253,7 @@ export default function Lightbox({
         {/* 前へ（ズーム中は非表示） */}
         {!isZoomed && (
           <button
-            onClick={(e) => { e.stopPropagation(); handlePrev(); }}
+            onClick={(e) => { e.stopPropagation(); onPrev(); }}
             className="absolute left-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
             aria-label="Previous"
           >
@@ -347,7 +286,7 @@ export default function Lightbox({
         {/* 次へ（ズーム中は非表示） */}
         {!isZoomed && (
           <button
-            onClick={(e) => { e.stopPropagation(); handleNext(); }}
+            onClick={(e) => { e.stopPropagation(); onNext(); }}
             className="absolute right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/80 transition-colors"
             aria-label="Next"
           >
@@ -377,16 +316,6 @@ export default function Lightbox({
             >
               ×{view.zoom.toFixed(1)} リセット
             </button>
-          </div>
-        )}
-
-        {/* スライドショー進行バー */}
-        {playing && (
-          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-700">
-            <div
-              className="h-full bg-blue-500"
-              style={{ animation: `progress ${SLIDESHOW_INTERVAL}ms linear` }}
-            />
           </div>
         )}
       </div>
