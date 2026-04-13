@@ -5,18 +5,17 @@ import { ImageItem, FolderInfo } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
-import Toolbar, { SortKey, SortDir, OrientationFilter } from "@/components/Toolbar";
+import Toolbar, { OrientationFilter } from "@/components/Toolbar";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
-function sortImages(images: ImageItem[], key: SortKey, dir: SortDir): ImageItem[] {
-  return [...images].sort((a, b) => {
-    let v = 0;
-    if (key === "mtime") v = a.mtime - b.mtime;
-    else if (key === "size") v = a.size - b.size;
-    else v = a.filename.localeCompare(b.filename, "ja");
-    return dir === "desc" ? -v : v;
-  });
+function shuffleImages(images: ImageItem[]): ImageItem[] {
+  const arr = [...images];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
 }
 
 export default function Home() {
@@ -31,8 +30,6 @@ export default function Home() {
 
   // ツールバー状態
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("mtime");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [orientation, setOrientation] = useState<OrientationFilter>("all");
   const [dimensionMap, setDimensionMap] = useState<Map<string, { w: number; h: number }>>(new Map());
   const [columns, setColumns] = useState(3);
@@ -40,10 +37,8 @@ export default function Home() {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
   // AI 検索状態
-  const [aiMode, setAiMode] = useState(false);
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<ImageItem[] | null>(null);
-  const [aiResultCount, setAiResultCount] = useState<number | null>(null);
   const [similarTarget, setSimilarTarget] = useState<string | null>(null);
 
   const handleRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
@@ -64,7 +59,7 @@ export default function Home() {
       : `${API_BASE}/api/images`;
     fetch(url)
       .then((r) => r.json())
-      .then((data: ImageItem[]) => setImages(data))
+      .then((data: ImageItem[]) => setImages(shuffleImages(data)))
       .catch(console.error)
       .finally(() => setLoadingImages(false));
   }, [selectedFolder, refreshKey]);
@@ -98,15 +93,10 @@ export default function Home() {
     });
   }, []);
 
-  // AI モードのときは aiResults を優先
-  const displayImages = useMemo(() => {
-    if (aiMode && aiResults !== null) return aiResults;
-    return null; // null = 通常モードへフォールバック
-  }, [aiMode, aiResults]);
-
-  // フィルタ + ソート済み画像
+  // フィルタ済み画像（順序はシャッフル済み）
   const filteredImages = useMemo(() => {
-    if (displayImages !== null) return displayImages;
+    // AI 検索結果があればそちらを優先（スコア順で確定済み）
+    if (aiResults !== null) return aiResults;
     const q = search.trim().toLowerCase();
     let filtered = q
       ? images.filter(
@@ -125,8 +115,8 @@ export default function Home() {
       });
     }
 
-    return sortImages(filtered, sortKey, sortDir);
-  }, [images, search, sortKey, sortDir, orientation, dimensionMap]);
+    return filtered;
+  }, [images, search, orientation, dimensionMap]);
 
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
 
@@ -174,30 +164,22 @@ export default function Home() {
     setRefreshKey((k) => k + 1);
   }, [selectedPaths]);
 
-  const handleSortChange = useCallback((key: SortKey, dir: SortDir) => {
-    setSortKey(key);
-    setSortDir(dir);
-  }, []);
-
-  // AI セマンティック検索
+  // AI セマンティック検索（Enter キーで発火）
   const handleAiSearch = useCallback(async (q: string) => {
     setAiSearching(true);
     setAiResults(null);
-    setAiResultCount(null);
     setSimilarTarget(null);
     try {
       const res = await fetch(`${API_BASE}/api/images/search?q=${encodeURIComponent(q)}&limit=40`);
       const data = await res.json();
       if (Array.isArray(data)) {
-        // path を元に images 配列とマージしてスコア順で返す
         const pathOrder = new Map<string, number>(
-          data.map((r: { path: string; score: number }, i: number) => [r.path, i])
+          data.map((r: { path: string }, i: number) => [r.path, i])
         );
         const matched = images
           .filter((img) => pathOrder.has(img.path))
           .sort((a, b) => (pathOrder.get(a.path) ?? 999) - (pathOrder.get(b.path) ?? 999));
         setAiResults(matched);
-        setAiResultCount(matched.length);
       }
     } catch (e) {
       console.error(e);
@@ -206,13 +188,19 @@ export default function Home() {
     }
   }, [images]);
 
+  // テキスト変更時は AI 結果をリセット（ローカルフィルタに戻す）
+  const handleSearchChange = useCallback((v: string) => {
+    setSearch(v);
+    setAiResults(null);
+    setSimilarTarget(null);
+  }, []);
+
   // 類似画像検索
   const handleFindSimilar = useCallback(async (imagePath: string) => {
-    setAiMode(true);
     setAiSearching(true);
     setAiResults(null);
-    setAiResultCount(null);
     setSimilarTarget(imagePath);
+    setSearch(imagePath.split("/").pop() ?? "");
     setLightboxIndex(null);
     try {
       const res = await fetch(`${API_BASE}/api/images/similar?path=${encodeURIComponent(imagePath)}&limit=24`);
@@ -225,7 +213,6 @@ export default function Home() {
           .filter((img) => pathOrder.has(img.path))
           .sort((a, b) => (pathOrder.get(a.path) ?? 999) - (pathOrder.get(b.path) ?? 999));
         setAiResults(matched);
-        setAiResultCount(matched.length);
       }
     } catch (e) {
       console.error(e);
@@ -233,17 +220,6 @@ export default function Home() {
       setAiSearching(false);
     }
   }, [images]);
-
-  const handleAiModeToggle = useCallback(() => {
-    setAiMode((v) => {
-      if (v) {
-        setAiResults(null);
-        setAiResultCount(null);
-        setSimilarTarget(null);
-      }
-      return !v;
-    });
-  }, []);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -261,25 +237,23 @@ export default function Home() {
         <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 pt-4 pb-3">
           <div className="mb-2 flex items-center gap-2">
             <h1 className="text-lg font-semibold text-gray-100">
-              {aiMode && similarTarget
+              {similarTarget
                 ? `類似: ${similarTarget.split("/").pop()}`
-                : aiMode
-                ? "AI 検索"
                 : (selectedFolder ?? "All")}
             </h1>
             {!loadingImages && (
               <span className="text-sm text-gray-400">
-                {filteredImages.length}{!aiMode && search ? ` / ${images.length}` : ""} images
+                {filteredImages.length}{aiResults === null && search ? ` / ${images.length}` : ""} images
               </span>
             )}
           </div>
 
           <Toolbar
             search={search}
-            onSearchChange={setSearch}
-            sortKey={sortKey}
-            sortDir={sortDir}
-            onSortChange={handleSortChange}
+            onSearchChange={handleSearchChange}
+            onAiSearch={handleAiSearch}
+            aiSearching={aiSearching}
+            aiActive={aiResults !== null}
             orientation={orientation}
             onOrientationChange={setOrientation}
             columns={columns}
@@ -288,11 +262,6 @@ export default function Home() {
             selectedCount={selectedPaths.size}
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             onBulkDelete={handleBulkDelete}
-            aiMode={aiMode}
-            aiSearching={aiSearching}
-            aiResultCount={aiResultCount}
-            onAiModeToggle={handleAiModeToggle}
-            onAiSearch={handleAiSearch}
           />
         </div>
 
