@@ -1,5 +1,8 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
+import { USAGE_TAGS } from "@/types";
+
 export type OrientationFilter = "all" | "landscape" | "portrait";
 
 type Props = {
@@ -16,6 +19,8 @@ type Props = {
   selectedCount: number;
   onToggleSelectMode: () => void;
   onBulkDelete: () => void;
+  selectedUsageTag: string | null;
+  onSelectUsageTag: (tag: string | null) => void;
 };
 
 const ORIENTATION_OPTIONS: { value: OrientationFilter; label: string }[] = [
@@ -38,7 +43,26 @@ export default function Toolbar({
   selectedCount,
   onToggleSelectMode,
   onBulkDelete,
+  selectedUsageTag,
+  onSelectUsageTag,
 }: Props) {
+  const [usageOpen, setUsageOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // 外クリックで閉じる
+  useEffect(() => {
+    if (!usageOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setUsageOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [usageOpen]);
+
+  const currentTag = USAGE_TAGS.find((t) => t.value === selectedUsageTag);
+
   return (
     <div className="flex items-center gap-2 mb-4 flex-wrap">
       {/* 検索ボックス（タイプ→ローカルフィルタ、Enter→AI検索） */}
@@ -78,6 +102,62 @@ export default function Toolbar({
           >
             ✕
           </button>
+        )}
+      </div>
+
+      {/* 利用先フィルター（プルダウン） */}
+      <div ref={dropdownRef} className="relative">
+        <button
+          onClick={() => setUsageOpen((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+            selectedUsageTag
+              ? "bg-blue-900/50 border-blue-600 text-blue-300"
+              : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          <span>{currentTag ? currentTag.label : "利用先"}</span>
+          <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          {selectedUsageTag && (
+            <span
+              role="button"
+              onClick={(e) => { e.stopPropagation(); onSelectUsageTag(null); }}
+              className="ml-0.5 hover:text-white transition-colors"
+              aria-label="フィルタ解除"
+            >
+              ✕
+            </span>
+          )}
+        </button>
+
+        {usageOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 min-w-[120px] py-1 overflow-hidden">
+            <button
+              onClick={() => { onSelectUsageTag(null); setUsageOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                !selectedUsageTag
+                  ? "text-white bg-gray-700"
+                  : "text-gray-300 hover:bg-gray-700 hover:text-white"
+              }`}
+            >
+              すべて
+            </button>
+            <div className="border-t border-gray-700 my-0.5" />
+            {USAGE_TAGS.map((tag) => (
+              <button
+                key={tag.value}
+                onClick={() => { onSelectUsageTag(tag.value); setUsageOpen(false); }}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                  selectedUsageTag === tag.value
+                    ? "text-white bg-gray-700"
+                    : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                }`}
+              >
+                {tag.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 

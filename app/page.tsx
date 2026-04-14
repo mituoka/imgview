@@ -230,8 +230,6 @@ export default function Home() {
         loading={loadingFolders}
         onRefresh={handleRefresh}
         currentFolder={selectedFolder}
-        selectedUsageTag={selectedUsageTag}
-        onSelectUsageTag={setSelectedUsageTag}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -261,6 +259,8 @@ export default function Home() {
             selectedCount={selectedPaths.size}
             onToggleSelectMode={() => setSelectMode((v) => !v)}
             onBulkDelete={handleBulkDelete}
+            selectedUsageTag={selectedUsageTag}
+            onSelectUsageTag={setSelectedUsageTag}
           />
         </div>
 
