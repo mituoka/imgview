@@ -2,7 +2,7 @@
 
 import { useEffect, useCallback, useState, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { ImageItem } from "@/types";
+import { ImageItem, USAGE_TAGS } from "@/types";
 
 type Props = {
   image: ImageItem;
@@ -15,6 +15,35 @@ type Props = {
   onPrev: () => void;
   onNext: () => void;
   onDelete: (image: ImageItem) => void;
+  onUsageTagsChange?: (path: string, tags: string[]) => void;
+};
+
+// タグの色クラスマップ
+const TAG_COLOR_CLASSES: Record<string, { pill: string; badge: string }> = {
+  violet: {
+    pill: "bg-violet-900/60 text-violet-300 border border-violet-700/50",
+    badge: "bg-violet-800 hover:bg-violet-700 text-violet-200",
+  },
+  blue: {
+    pill: "bg-blue-900/60 text-blue-300 border border-blue-700/50",
+    badge: "bg-blue-800 hover:bg-blue-700 text-blue-200",
+  },
+  green: {
+    pill: "bg-green-900/60 text-green-300 border border-green-700/50",
+    badge: "bg-green-800 hover:bg-green-700 text-green-200",
+  },
+  orange: {
+    pill: "bg-orange-900/60 text-orange-300 border border-orange-700/50",
+    badge: "bg-orange-800 hover:bg-orange-700 text-orange-200",
+  },
+  pink: {
+    pill: "bg-pink-900/60 text-pink-300 border border-pink-700/50",
+    badge: "bg-pink-800 hover:bg-pink-700 text-pink-200",
+  },
+  yellow: {
+    pill: "bg-yellow-900/60 text-yellow-300 border border-yellow-700/50",
+    badge: "bg-yellow-800 hover:bg-yellow-700 text-yellow-200",
+  },
 };
 
 function formatBytes(bytes: number): string {
@@ -71,9 +100,50 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 export default function Lightbox({
   image, index, total, apiBase,
   prevImage, nextImage,
-  onClose, onPrev, onNext, onDelete,
+  onClose, onPrev, onNext, onDelete, onUsageTagsChange,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
+
+  // 利用先タグ
+  const [usageTags, setUsageTags] = useState<string[]>(image.usage_tags ?? []);
+  const [showTagDropdown, setShowTagDropdown] = useState(false);
+
+  const handleAddTag = useCallback(async (tagValue: string) => {
+    const prev = usageTags;
+    const next = [...prev, tagValue];
+    setUsageTags(next);
+    setShowTagDropdown(false);
+    try {
+      const res = await fetch("/api/images/usage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: image.path, tags: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      onUsageTagsChange?.(image.path, next);
+    } catch (e) {
+      console.error(e);
+      setUsageTags(prev);
+    }
+  }, [usageTags, image.path, onUsageTagsChange]);
+
+  const handleRemoveTag = useCallback(async (tagValue: string) => {
+    const prev = usageTags;
+    const next = prev.filter((t) => t !== tagValue);
+    setUsageTags(next);
+    try {
+      const res = await fetch("/api/images/usage", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: image.path, tags: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      onUsageTagsChange?.(image.path, next);
+    } catch (e) {
+      console.error(e);
+      setUsageTags(prev);
+    }
+  }, [usageTags, image.path, onUsageTagsChange]);
 
   // QR共有
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -150,7 +220,9 @@ export default function Lightbox({
     setUpscaleStatus("idle");
     setQrUrl(null);
     setCopyStatus("idle");
-  }, [image.path]);
+    setUsageTags(image.usage_tags ?? []);
+    setShowTagDropdown(false);
+  }, [image.path, image.usage_tags]);
 
   // 隣接画像のプリロード
   useEffect(() => {
@@ -450,26 +522,84 @@ export default function Lightbox({
 
       {/* Bottom info bar */}
       <div
-        className="flex items-center gap-6 px-4 py-3 bg-gray-900/80 flex-shrink-0 text-sm text-gray-400"
+        className="px-4 py-3 bg-gray-900/80 flex-shrink-0 text-sm text-gray-400 space-y-2"
         onClick={(e) => e.stopPropagation()}
       >
-        <span><span className="text-gray-500">Path: </span><span className="text-gray-300">{image.path}</span></span>
-        <span><span className="text-gray-500">Size: </span><span className="text-gray-300">{formatBytes(image.size)}</span></span>
-        {image.category && (
-          <span><span className="text-gray-500">Category: </span><span className="text-blue-400">{image.category}</span></span>
-        )}
-        <span>
-          <span className="text-gray-500">Modified: </span>
-          <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
-        </span>
-        {isZoomed && (
-          <span className="ml-auto text-gray-500 text-xs">
-            ホイール: ズーム｜ドラッグ: 移動｜ダブルクリック/0: リセット
+        {/* 1行目: メタ情報 */}
+        <div className="flex items-center gap-6">
+          <span><span className="text-gray-500">Path: </span><span className="text-gray-300">{image.path}</span></span>
+          <span><span className="text-gray-500">Size: </span><span className="text-gray-300">{formatBytes(image.size)}</span></span>
+          {image.category && (
+            <span><span className="text-gray-500">Category: </span><span className="text-blue-400">{image.category}</span></span>
+          )}
+          <span>
+            <span className="text-gray-500">Modified: </span>
+            <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
           </span>
-        )}
-        {!isZoomed && (
-          <span className="ml-auto text-gray-600 text-xs">? でショートカット一覧</span>
-        )}
+          {isZoomed && (
+            <span className="ml-auto text-gray-500 text-xs">
+              ホイール: ズーム｜ドラッグ: 移動｜ダブルクリック/0: リセット
+            </span>
+          )}
+          {!isZoomed && (
+            <span className="ml-auto text-gray-600 text-xs">? でショートカット一覧</span>
+          )}
+        </div>
+
+        {/* 2行目: 利用先タグ */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-gray-500 text-xs flex-shrink-0">利用先:</span>
+          {usageTags.map((tagValue) => {
+            const tagDef = USAGE_TAGS.find((t) => t.value === tagValue);
+            if (!tagDef) return null;
+            const colors = TAG_COLOR_CLASSES[tagDef.color] ?? TAG_COLOR_CLASSES.blue;
+            return (
+              <span
+                key={tagValue}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${colors.pill}`}
+              >
+                {tagDef.label}
+                <button
+                  onClick={() => handleRemoveTag(tagValue)}
+                  className="hover:text-white transition-colors leading-none"
+                  aria-label={`${tagDef.label}を削除`}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+
+          {/* + ボタン + ドロップダウン */}
+          <div className="relative">
+            <button
+              onClick={() => setShowTagDropdown((v) => !v)}
+              className="w-6 h-6 flex items-center justify-center rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white text-sm transition-colors"
+              aria-label="タグを追加"
+            >
+              +
+            </button>
+            {showTagDropdown && (
+              <div className="absolute bottom-8 left-0 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-10 min-w-[120px] py-1">
+                {USAGE_TAGS.filter((t) => !usageTags.includes(t.value)).map((t) => {
+                  const colors = TAG_COLOR_CLASSES[t.color] ?? TAG_COLOR_CLASSES.blue;
+                  return (
+                    <button
+                      key={t.value}
+                      onClick={() => handleAddTag(t.value)}
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-gray-700 transition-colors ${colors.badge.split(" ").filter((c) => c.startsWith("text-")).join(" ")} text-gray-200 hover:text-white`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+                {USAGE_TAGS.filter((t) => !usageTags.includes(t.value)).length === 0 && (
+                  <p className="px-3 py-1.5 text-xs text-gray-500">すべて付与済み</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* キーボードショートカット一覧 */}

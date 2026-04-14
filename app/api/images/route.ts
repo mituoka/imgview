@@ -22,6 +22,7 @@ const IMAGE_EXTENSIONS = new Set([
 type CacheEntry = {
   category?: string;
   name?: string;
+  usage_tags?: string[];
 };
 
 function loadCache(): Record<string, CacheEntry> {
@@ -87,12 +88,13 @@ export async function GET(request: NextRequest) {
   const cache = loadCache();
   let images = scanImages(IMAGES_ROOT, IMAGES_ROOT);
 
-  // Attach category from cache
+  // Attach category and usage_tags from cache
   images = images.map((img) => {
     const cached = cache[img.id];
     return {
       ...img,
       category: cached?.category,
+      usage_tags: cached?.usage_tags ?? [],
     };
   });
 

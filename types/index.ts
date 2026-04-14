@@ -6,7 +6,17 @@ export type ImageItem = {
   category?: string;
   size: number;
   mtime: number;
+  usage_tags?: string[];
 };
+
+export const USAGE_TAGS: { value: string; label: string; color: string }[] = [
+  { value: "sp_wallpaper", label: "スマホ壁紙", color: "violet" },
+  { value: "pc_wallpaper", label: "PC壁紙",    color: "blue" },
+  { value: "icon",         label: "アイコン",   color: "green" },
+  { value: "web_material", label: "Web素材",    color: "orange" },
+  { value: "sns",          label: "SNS投稿",    color: "pink" },
+  { value: "thumbnail",    label: "サムネイル", color: "yellow" },
+];
 
 export type FolderInfo = {
   name: string;

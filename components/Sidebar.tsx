@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
-import { FolderInfo } from "@/types";
+import { FolderInfo, USAGE_TAGS } from "@/types";
 import RunImgtoolsPanel from "@/components/RunImgtoolsPanel";
 
 type Props = {
@@ -14,6 +14,8 @@ type Props = {
   loading: boolean;
   onRefresh: () => void;
   currentFolder: string | null;
+  selectedUsageTag: string | null;
+  onSelectUsageTag: (tag: string | null) => void;
 };
 
 function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
@@ -70,6 +72,8 @@ export default function Sidebar({
   loading,
   onRefresh,
   currentFolder,
+  selectedUsageTag,
+  onSelectUsageTag,
 }: Props) {
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
@@ -131,6 +135,39 @@ export default function Sidebar({
           </ul>
         )}
       </nav>
+
+      {/* 利用先タグセクション */}
+      <div className="p-2 border-t border-gray-800">
+        <p className="px-3 py-1.5 text-xs text-gray-500 font-medium">利用先</p>
+        <ul className="space-y-0.5">
+          <li>
+            <button
+              onClick={() => onSelectUsageTag(null)}
+              className={`w-full flex items-center px-3 py-2 rounded text-sm transition-colors ${
+                selectedUsageTag === null
+                  ? "bg-blue-600 text-white"
+                  : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+              }`}
+            >
+              すべて
+            </button>
+          </li>
+          {USAGE_TAGS.map((tag) => (
+            <li key={tag.value}>
+              <button
+                onClick={() => onSelectUsageTag(tag.value)}
+                className={`w-full flex items-center px-3 py-2 rounded text-sm transition-colors ${
+                  selectedUsageTag === tag.value
+                    ? "bg-blue-600 text-white"
+                    : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
+                }`}
+              >
+                {tag.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
 
       <div className="p-2 pb-10 border-t border-gray-800 space-y-1">
         <WatcherButton onRefresh={onRefresh} />

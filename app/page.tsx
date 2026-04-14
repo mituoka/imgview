@@ -27,6 +27,7 @@ export default function Home() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<ImageItem | null>(null);
+  const [selectedUsageTag, setSelectedUsageTag] = useState<string | null>(null);
 
   // ツールバー状態
   const [search, setSearch] = useState("");
@@ -114,8 +115,12 @@ export default function Home() {
       });
     }
 
+    if (selectedUsageTag) {
+      filtered = filtered.filter((img) => img.usage_tags?.includes(selectedUsageTag));
+    }
+
     return filtered;
-  }, [images, search, orientation, dimensionMap]);
+  }, [images, search, orientation, dimensionMap, selectedUsageTag]);
 
   // filteredImages が縮小したとき lightboxIndex を範囲内に収める
   useEffect(() => {
@@ -205,6 +210,16 @@ export default function Home() {
     setAiResults(null);
   }, []);
 
+  // 利用先タグ変更時に images と aiResults を更新
+  const handleUsageTagsChange = useCallback((path: string, tags: string[]) => {
+    setImages((prev) =>
+      prev.map((img) => img.path === path ? { ...img, usage_tags: tags } : img)
+    );
+    setAiResults((prev) =>
+      prev ? prev.map((img) => img.path === path ? { ...img, usage_tags: tags } : img) : null
+    );
+  }, []);
+
   return (
     <div className="flex h-full overflow-hidden">
       <Sidebar
@@ -215,6 +230,8 @@ export default function Home() {
         loading={loadingFolders}
         onRefresh={handleRefresh}
         currentFolder={selectedFolder}
+        selectedUsageTag={selectedUsageTag}
+        onSelectUsageTag={setSelectedUsageTag}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -275,6 +292,7 @@ export default function Home() {
           onPrev={handleLightboxPrev}
           onNext={handleLightboxNext}
           onDelete={handleDeleteRequest}
+          onUsageTagsChange={handleUsageTagsChange}
         />
       )}
 
