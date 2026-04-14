@@ -1,7 +1,7 @@
 "use client";
 
 import { ImageItem } from "@/types";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 type Props = {
   images: ImageItem[];
@@ -35,6 +35,9 @@ const COL_CLASS: Record<number, string> = {
   4: "columns-4",
   5: "columns-5",
 };
+
+const INITIAL_COUNT = 120;
+const INCREMENT = 60;
 
 function Thumbnail({
   image, index, priority, selectMode, selected,
@@ -128,6 +131,29 @@ export default function ImageGrid({
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
 }: Props) {
   const colClass = COL_CLASS[columns] ?? "columns-3";
+  const [displayCount, setDisplayCount] = useState(INITIAL_COUNT);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // 画像リストが変わったら表示数をリセット
+  useEffect(() => {
+    setDisplayCount(INITIAL_COUNT);
+  }, [images]);
+
+  // IntersectionObserver でスクロール末尾に達したら追加ロード
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setDisplayCount((prev) => Math.min(prev + INCREMENT, images.length));
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [images.length]);
 
   if (loading) {
     return (
@@ -153,25 +179,39 @@ export default function ImageGrid({
 
   // 最初の2行分（columns × 2）はビューポート内として eager ロード
   const PRIORITY_COUNT = columns * 2;
+  const visibleImages = images.slice(0, displayCount);
 
   return (
-    <div className={`${colClass} gap-1`}>
-      {images.map((image, index) => (
-        <div key={image.id} className="mb-1 break-inside-avoid">
-          <Thumbnail
-            image={image}
-            index={index}
-            priority={index < PRIORITY_COUNT}
-            selectMode={selectMode}
-            selected={selectedPaths.has(image.path)}
-            onImageClick={onImageClick}
-            onDelete={onDelete}
-            onToggleSelect={onToggleSelect}
-            onDimensionLoad={onDimensionLoad}
-            apiBase={apiBase}
-          />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className={`${colClass} gap-1`}>
+        {visibleImages.map((image, index) => (
+          <div key={image.id} className="mb-1 break-inside-avoid">
+            <Thumbnail
+              image={image}
+              index={index}
+              priority={index < PRIORITY_COUNT}
+              selectMode={selectMode}
+              selected={selectedPaths.has(image.path)}
+              onImageClick={onImageClick}
+              onDelete={onDelete}
+              onToggleSelect={onToggleSelect}
+              onDimensionLoad={onDimensionLoad}
+              apiBase={apiBase}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* 追加ロードのセンチネル / 残件数表示 */}
+      <div ref={sentinelRef} className="py-4 text-center">
+        {displayCount < images.length ? (
+          <span className="text-gray-600 text-xs">
+            {displayCount} / {images.length} 枚表示中
+          </span>
+        ) : images.length > INITIAL_COUNT ? (
+          <span className="text-gray-700 text-xs">{images.length} 枚すべて表示済み</span>
+        ) : null}
+      </div>
+    </>
   );
 }

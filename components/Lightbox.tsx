@@ -9,6 +9,8 @@ type Props = {
   index: number;
   total: number;
   apiBase: string;
+  prevImage?: ImageItem;
+  nextImage?: ImageItem;
   onClose: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -21,8 +23,54 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const SHORTCUTS = [
+  { key: "← →", desc: "前 / 次の画像" },
+  { key: "Esc", desc: "閉じる（ズーム中はリセット）" },
+  { key: "+ −", desc: "ズームイン / アウト" },
+  { key: "0", desc: "ズームリセット" },
+  { key: "ダブルクリック", desc: "ズームイン / リセット" },
+  { key: "ホイール", desc: "ズーム（カーソル中心）" },
+  { key: "ドラッグ", desc: "ズーム中に移動" },
+  { key: "?", desc: "このヘルプを表示" },
+];
+
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-80 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-100">キーボードショートカット</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-300 text-xs transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-2">
+          {SHORTCUTS.map(({ key, desc }) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <kbd className="px-2 py-0.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-300 font-mono whitespace-nowrap">
+                {key}
+              </kbd>
+              <span className="text-xs text-gray-400 text-right">{desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Lightbox({
   image, index, total, apiBase,
+  prevImage, nextImage,
   onClose, onPrev, onNext, onDelete,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
@@ -69,6 +117,26 @@ export default function Lightbox({
     }
   }, [apiBase, image.path]);
 
+  // クリップボードコピー
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copying" | "done" | "error">("idle");
+  const handleCopy = useCallback(async () => {
+    setCopyStatus("copying");
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const type = blob.type.startsWith("image/") ? blob.type : "image/png";
+      await navigator.clipboard.write([new ClipboardItem({ [type]: blob })]);
+      setCopyStatus("done");
+    } catch {
+      setCopyStatus("error");
+    } finally {
+      setTimeout(() => setCopyStatus("idle"), 2000);
+    }
+  }, [src]);
+
+  // ショートカット一覧
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
   // ── ズーム state ──────────────────────────────────────────
   const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -81,7 +149,28 @@ export default function Lightbox({
     setView({ zoom: 1, x: 0, y: 0 });
     setUpscaleStatus("idle");
     setQrUrl(null);
+    setCopyStatus("idle");
   }, [image.path]);
+
+  // 隣接画像のプリロード
+  useEffect(() => {
+    const toCleanup: HTMLLinkElement[] = [];
+    [prevImage, nextImage].forEach((img) => {
+      if (!img) return;
+      const href = `${apiBase}/api/images/file/${encodeURIComponent(img.path).replace(/%2F/g, "/")}`;
+      const link = document.createElement("link");
+      link.rel = "preload";
+      link.as = "image";
+      link.href = href;
+      document.head.appendChild(link);
+      toCleanup.push(link);
+    });
+    return () => {
+      toCleanup.forEach((link) => {
+        if (document.head.contains(link)) document.head.removeChild(link);
+      });
+    };
+  }, [prevImage?.path, nextImage?.path, apiBase]);
 
   // ホイールズーム（カーソル位置を中心に）
   useEffect(() => {
@@ -151,6 +240,11 @@ export default function Lightbox({
 
   // ── キーボード ────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (showShortcuts) {
+      if (e.key === "Escape" || e.key === "?") setShowShortcuts(false);
+      return;
+    }
+    if (e.key === "?") { setShowShortcuts(true); return; }
     if (e.key === "Escape") {
       if (isZoomed) { setView({ zoom: 1, x: 0, y: 0 }); return; }
       onClose();
@@ -170,7 +264,7 @@ export default function Lightbox({
       });
     }
     if (e.key === "0") setView({ zoom: 1, x: 0, y: 0 });
-  }, [isZoomed, onClose, onPrev, onNext]);
+  }, [isZoomed, showShortcuts, onClose, onPrev, onNext]);
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -194,6 +288,32 @@ export default function Lightbox({
         <span className="text-gray-400 text-sm">{index + 1} / {total}</span>
         <span className="text-gray-200 text-sm font-medium truncate mx-4 max-w-md">{image.filename}</span>
         <div className="flex items-center gap-2">
+          {/* クリップボードコピー */}
+          <button
+            onClick={handleCopy}
+            disabled={copyStatus === "copying"}
+            title="クリップボードにコピー"
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors disabled:cursor-not-allowed ${
+              copyStatus === "done"
+                ? "bg-green-700 text-green-200"
+                : copyStatus === "error"
+                ? "bg-red-700/80 text-white"
+                : copyStatus === "copying"
+                ? "bg-gray-700 text-gray-400"
+                : "bg-gray-700 hover:bg-gray-600 text-gray-300"
+            }`}
+          >
+            {copyStatus === "copying" && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                コピー中
+              </span>
+            )}
+            {copyStatus === "done" && "✓ コピー済み"}
+            {copyStatus === "error" && "✗ 失敗"}
+            {copyStatus === "idle" && "コピー"}
+          </button>
+
           <button
             onClick={() => qrUrl ? setQrUrl(null) : showQr()}
             className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
@@ -231,6 +351,14 @@ export default function Lightbox({
             className="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"
           >
             削除
+          </button>
+          {/* ショートカットヘルプ */}
+          <button
+            onClick={() => setShowShortcuts(true)}
+            title="キーボードショートカット (?)"
+            className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-400 hover:text-gray-200 text-sm font-mono transition-colors"
+          >
+            ?
           </button>
           <button
             onClick={onClose}
@@ -339,7 +467,13 @@ export default function Lightbox({
             ホイール: ズーム｜ドラッグ: 移動｜ダブルクリック/0: リセット
           </span>
         )}
+        {!isZoomed && (
+          <span className="ml-auto text-gray-600 text-xs">? でショートカット一覧</span>
+        )}
       </div>
+
+      {/* キーボードショートカット一覧 */}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   );
 }

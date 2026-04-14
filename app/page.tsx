@@ -269,6 +269,8 @@ export default function Home() {
           index={lightboxIndex}
           total={filteredImages.length}
           apiBase={API_BASE}
+          prevImage={filteredImages[lightboxIndex > 0 ? lightboxIndex - 1 : filteredImages.length - 1]}
+          nextImage={filteredImages[lightboxIndex < filteredImages.length - 1 ? lightboxIndex + 1 : 0]}
           onClose={handleLightboxClose}
           onPrev={handleLightboxPrev}
           onNext={handleLightboxNext}
