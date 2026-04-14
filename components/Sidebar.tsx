@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState, useCallback } from "react";
 import { FolderInfo } from "@/types";
 import RunImgtoolsPanel from "@/components/RunImgtoolsPanel";
@@ -73,9 +74,12 @@ export default function Sidebar({
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
       <div className="p-4 border-b border-gray-800">
-        <h2 className="text-sm font-bold text-gray-100 tracking-wider uppercase">
-          imgview
-        </h2>
+        <div className="flex items-center gap-2">
+          <Image src="/icon.png" alt="logo" width={24} height={24} className="rounded-full" />
+          <h2 className="text-sm font-bold text-gray-100 tracking-wider uppercase">
+            imgview
+          </h2>
+        </div>
       </div>
 
       <nav className="flex-1 p-2">
