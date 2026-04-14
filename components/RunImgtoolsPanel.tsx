@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 
-type Command = "scan" | "analyze" | "auto" | "upscale";
+type Command = "scan" | "analyze" | "auto" | "upscale" | "tag";
 type Status = "idle" | "running" | "done" | "error";
 
 type Section = {
@@ -22,6 +22,7 @@ const SECTIONS: Section[] = [
     label: "AI処理",
     commands: [
       { id: "analyze", label: "AI一括処理", desc: "分類 → 品質チェック → キャプション → ベクトル化" },
+      { id: "tag",     label: "利用先タグ自動付与", desc: "カテゴリをもとに利用先タグを一括付与" },
     ],
   },
   {

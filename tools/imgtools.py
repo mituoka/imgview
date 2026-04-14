@@ -77,6 +77,30 @@ CATEGORY_LABELS = {
     "other": "Other",
 }
 
+# ─── 利用先タグ ─────────────────────────────────────────
+USAGE_TAG_LABELS = {
+    "sp_wallpaper": "スマホ壁紙",
+    "pc_wallpaper": "PC壁紙",
+    "icon":         "アイコン",
+    "web_material": "Web素材",
+    "sns":          "SNS投稿",
+    "thumbnail":    "サムネイル",
+}
+
+# カテゴリ → デフォルト利用先タグ のマッピング
+CATEGORY_TO_USAGE_TAGS: dict[str, list[str]] = {
+    "anime_illustration": ["sp_wallpaper", "sns"],
+    "artwork":            ["sp_wallpaper", "pc_wallpaper"],
+    "photo_landscape":    ["sp_wallpaper", "pc_wallpaper"],
+    "photo_people":       ["sns"],
+    "photo_food":         ["sns"],
+    "photo_object":       ["sns"],
+    "screenshot":         ["web_material", "thumbnail"],
+    "document":           ["web_material"],
+    "meme_funny":         ["sns"],
+    "other":              [],
+}
+
 
 # ─── ユーティリティ ─────────────────────────────────────
 def find_images(target_dir: Path = BASE_DIR, recursive: bool = True,
@@ -1238,6 +1262,63 @@ def cmd_embed(args):
     print(f"\nembedding 生成完了！ChromaDB: {CHROMA_DIR}")
 
 
+# ─── tag コマンド（利用先タグ自動付与）──────────────────────
+
+def cmd_tag(args):
+    """カテゴリをもとに usage_tags を自動付与する"""
+    dry_run: bool = getattr(args, "dry_run", False)
+    force: bool   = getattr(args, "force", False)
+
+    cache  = load_cache()
+    images = find_images()
+
+    tagged     = 0
+    skipped    = 0
+    no_cat     = 0
+
+    for img in images:
+        key   = get_cache_key(img)
+        entry = cache.get(key, {})
+        category = entry.get("category")
+
+        if not category:
+            no_cat += 1
+            continue
+
+        # すでにタグがある場合は --force のときのみ上書き
+        if entry.get("usage_tags") and not force:
+            skipped += 1
+            continue
+
+        suggested = CATEGORY_TO_USAGE_TAGS.get(category, [])
+        if not suggested:
+            skipped += 1
+            continue
+
+        labels = " / ".join(USAGE_TAG_LABELS.get(t, t) for t in suggested)
+        prefix = "[DRY]" if dry_run else "[TAG]"
+        print(f"{prefix} {key}  →  {labels}")
+
+        if not dry_run:
+            if key not in cache:
+                cache[key] = {}
+            cache[key]["usage_tags"] = suggested
+
+        tagged += 1
+
+    if not dry_run and tagged > 0:
+        save_cache(cache)
+
+    mode = "プレビュー（変更なし）" if dry_run else "完了"
+    print()
+    print("=" * 50)
+    print(f"  {mode}")
+    print(f"  タグ付け : {tagged} 件")
+    print(f"  スキップ : {skipped} 件（タグ済 or タグなしカテゴリ）")
+    print(f"  未分類   : {no_cat} 件（category 未設定）")
+    print("=" * 50)
+
+
 # ─── analyze コマンド（一括処理）────────────────────────────
 
 def cmd_analyze(args):
@@ -1423,6 +1504,11 @@ def main():
     # analyze コマンド
     sub.add_parser("analyze", help="AI一括処理: 分類 → 品質チェック → キャプション → ベクトル化")
 
+    # tag コマンド
+    p_tag = sub.add_parser("tag", help="カテゴリをもとに利用先タグを自動付与")
+    p_tag.add_argument("--dry-run", action="store_true", help="プレビューのみ（変更しない）")
+    p_tag.add_argument("--force", action="store_true", help="タグ済み画像も上書き")
+
     # caption コマンド
     p_caption = sub.add_parser("caption", help="llava:7b で画像のキャプションを生成")
     p_caption.add_argument("--force", action="store_true", help="生成済みも再生成")
@@ -1472,6 +1558,7 @@ def main():
         "quality": cmd_quality,
         "upscale": cmd_upscale,
         "analyze": cmd_analyze,
+        "tag": cmd_tag,
         "caption": cmd_caption,
         "embed": cmd_embed,
         "search": cmd_search,
