@@ -71,6 +71,19 @@ export default function Home() {
     if (!selectMode) setSelectedPaths(new Set());
   }, [selectMode]);
 
+  // 編集後にジャンプするパスを保持
+  const pendingOpenPath = useRef<string | null>(null);
+
+  // 画像リフレッシュ完了後、pendingOpenPath があればライトボックスで開く
+  useEffect(() => {
+    if (!pendingOpenPath.current || loadingImages) return;
+    const idx = images.findIndex((img) => img.path === pendingOpenPath.current);
+    if (idx !== -1) {
+      setLightboxIndex(idx);
+      pendingOpenPath.current = null;
+    }
+  }, [images, loadingImages]);
+
   // 画像ロードごとの setDimensionMap を rAF でまとめて1回の setState に
   const pendingDims = useRef<Map<string, { w: number; h: number }>>(new Map());
   const rafRef = useRef<number | null>(null);
@@ -305,8 +318,9 @@ export default function Home() {
             image={editingImage}
             apiBase={API_BASE}
             onClose={() => setEditingImage(null)}
-            onSaved={() => {
+            onSaved={(newPath) => {
               setEditingImage(null);
+              pendingOpenPath.current = newPath;
               setRefreshKey((k) => k + 1);
             }}
           />
