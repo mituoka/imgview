@@ -531,32 +531,21 @@ export default function Lightbox({
 
       {/* Bottom info bar */}
       <div
-        className="px-4 py-3 bg-gray-900/80 flex-shrink-0 text-sm text-gray-400 space-y-2"
+        className="flex items-center gap-4 px-4 py-3 bg-gray-900/80 flex-shrink-0 text-sm text-gray-400 flex-wrap"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 1行目: メタ情報 */}
-        <div className="flex items-center gap-6">
-          <span><span className="text-gray-500">Path: </span><span className="text-gray-300">{image.path}</span></span>
-          <span><span className="text-gray-500">Size: </span><span className="text-gray-300">{formatBytes(image.size)}</span></span>
-          {image.category && (
-            <span><span className="text-gray-500">Category: </span><span className="text-blue-400">{image.category}</span></span>
-          )}
-          <span>
-            <span className="text-gray-500">Modified: </span>
-            <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
-          </span>
-          {isZoomed && (
-            <span className="ml-auto text-gray-500 text-xs">
-              ホイール: ズーム｜ドラッグ: 移動｜ダブルクリック/0: リセット
-            </span>
-          )}
-          {!isZoomed && (
-            <span className="ml-auto text-gray-600 text-xs">? でショートカット一覧</span>
-          )}
-        </div>
+        <span><span className="text-gray-500">Path: </span><span className="text-gray-300">{image.path}</span></span>
+        <span><span className="text-gray-500">Size: </span><span className="text-gray-300">{formatBytes(image.size)}</span></span>
+        {image.category && (
+          <span><span className="text-gray-500">Category: </span><span className="text-blue-400">{image.category}</span></span>
+        )}
+        <span>
+          <span className="text-gray-500">Modified: </span>
+          <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
+        </span>
 
-        {/* 2行目: 利用先タグ */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* 利用先タグ（区切り線付き） */}
+        <div className="flex items-center gap-2 border-l border-gray-700 pl-4 flex-wrap">
           <span className="text-gray-500 text-xs flex-shrink-0">利用先:</span>
           {usageTags.map((tagValue) => {
             const tagDef = USAGE_TAGS.find((t) => t.value === tagValue);
