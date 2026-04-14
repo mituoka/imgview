@@ -197,7 +197,7 @@ export default function Toolbar({
 
       {/* 列数 */}
       <div className="flex items-center gap-0.5 bg-gray-800 rounded-lg p-0.5">
-        {[2, 3, 4, 5].map((n) => (
+        {[3, 5, 7, 9, 11].map((n) => (
           <button
             key={n}
             onClick={() => onColumnsChange(n)}

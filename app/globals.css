@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* columns-6/7/8 を safelist に追加（動的クラス名はスキャンされないため） */
+@source inline("columns-{3,5,7,9,11}");
+
 * {
   box-sizing: border-box;
 }

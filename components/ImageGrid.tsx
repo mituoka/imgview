@@ -16,6 +16,8 @@ type Props = {
   onFavoriteChange?: (path: string, favorite: boolean) => void;
   apiBase: string;
   focusedIndex?: number | null;
+  onDragStartNotify?: () => void;
+  onDragEndNotify?: () => void;
 };
 
 type ThumbnailProps = {
@@ -31,13 +33,16 @@ type ThumbnailProps = {
   onDimensionLoad?: (path: string, w: number, h: number) => void;
   onFavoriteChange?: (path: string, favorite: boolean) => void;
   apiBase: string;
+  onDragStartNotify?: () => void;
+  onDragEndNotify?: () => void;
 };
 
 const COL_CLASS: Record<number, string> = {
-  2: "columns-2",
   3: "columns-3",
-  4: "columns-4",
   5: "columns-5",
+  7: "columns-7",
+  9: "columns-9",
+  11: "columns-11",
 };
 
 const INITIAL_COUNT = 120;
@@ -46,6 +51,7 @@ const INCREMENT = 60;
 function Thumbnail({
   image, index, priority, selectMode, selected, focused,
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, onFavoriteChange, apiBase,
+  onDragStartNotify, onDragEndNotify,
 }: ThumbnailProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
@@ -100,8 +106,19 @@ function Thumbnail({
       onDragStart={(e) => {
         e.dataTransfer.setData("imagePath", image.path);
         setIsDragging(true);
+        // カスタムゴースト（小さいバッジ）
+        const ghost = document.createElement("div");
+        ghost.style.cssText =
+          "position:fixed;top:-200px;left:0;background:#1f2937;color:#f3f4f6;padding:4px 10px;" +
+          "border-radius:6px;font-size:11px;border:1px solid #4b5563;white-space:nowrap;" +
+          "box-shadow:0 2px 8px rgba(0,0,0,0.5);pointer-events:none;";
+        ghost.textContent = `📷 ${image.filename}`;
+        document.body.appendChild(ghost);
+        e.dataTransfer.setDragImage(ghost, 0, 0);
+        setTimeout(() => document.body.removeChild(ghost), 0);
+        onDragStartNotify?.();
       }}
-      onDragEnd={() => setIsDragging(false)}
+      onDragEnd={() => { setIsDragging(false); onDragEndNotify?.(); }}
       className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none transition-opacity ${
         isDragging ? "opacity-50" : "opacity-100"
       } ${
@@ -191,7 +208,7 @@ function Thumbnail({
 export default function ImageGrid({
   images, loading, columns, selectMode, selectedPaths,
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, onFavoriteChange, apiBase,
-  focusedIndex,
+  focusedIndex, onDragStartNotify, onDragEndNotify,
 }: Props) {
   const colClass = COL_CLASS[columns] ?? "columns-3";
   const [displayCount, setDisplayCount] = useState(INITIAL_COUNT);
@@ -262,6 +279,8 @@ export default function ImageGrid({
               onDimensionLoad={onDimensionLoad}
               onFavoriteChange={onFavoriteChange}
               apiBase={apiBase}
+              onDragStartNotify={onDragStartNotify}
+              onDragEndNotify={onDragEndNotify}
             />
           </div>
         ))}

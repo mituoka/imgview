@@ -7,6 +7,7 @@ import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
 import Toolbar, { OrientationFilter } from "@/components/Toolbar";
 import ImageEditor from "@/components/ImageEditor";
+import FolderDropOverlay from "@/components/FolderDropOverlay";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -44,6 +45,9 @@ export default function Home() {
 
   // グリッドキーボードナビゲーション
   const [gridFocusIndex, setGridFocusIndex] = useState<number | null>(null);
+
+  // ドラッグ中フラグ（フォルダオーバーレイ表示制御）
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
 
   // AI 検索状態
   const [aiSearching, setAiSearching] = useState(false);
@@ -367,6 +371,8 @@ export default function Home() {
             onFavoriteChange={handleFavoriteChange}
             apiBase={API_BASE}
             focusedIndex={gridFocusIndex}
+            onDragStartNotify={() => setIsDraggingImage(true)}
+            onDragEndNotify={() => setIsDraggingImage(false)}
           />
         </div>
       </main>
@@ -403,6 +409,12 @@ export default function Home() {
           />
         </div>
       )}
+
+      <FolderDropOverlay
+        visible={isDraggingImage}
+        folders={folders}
+        onDrop={() => { setIsDraggingImage(false); handleRefresh(); }}
+      />
 
       {confirmDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70">
