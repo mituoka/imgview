@@ -1389,6 +1389,41 @@ def cmd_edit(args):
         print(_json.dumps({"ok": False, "error": str(e), "trace": traceback.format_exc()}))
 
 
+# ─── palette コマンド（カラーパレット抽出）────────────────
+
+def cmd_palette(args):
+    """画像から主要カラーパレットを抽出してJSON出力"""
+    import json as _json
+    try:
+        src = BASE_DIR / args.path
+        if not src.exists():
+            print(_json.dumps({"ok": False, "error": "File not found"}))
+            return
+
+        n = args.n  # 抽出色数（デフォルト5）
+
+        with Image.open(src) as img:
+            img = img.convert("RGB").resize((150, 150))
+            pixels = list(img.getdata())
+
+        # 簡易k-means: quantize で減色してから頻度順に並べる
+        import numpy as _np
+        from PIL import Image as _Img
+        small = _Img.fromarray(
+            _np.array(pixels, dtype="uint8").reshape(150, 150, 3)
+        )
+        quantized = small.quantize(colors=n, method=_Img.Quantize.MEDIANCUT)
+        palette_raw = quantized.getpalette()[:n*3]
+        colors = []
+        for i in range(n):
+            r, g, b = palette_raw[i*3], palette_raw[i*3+1], palette_raw[i*3+2]
+            colors.append(f"#{r:02x}{g:02x}{b:02x}")
+
+        print(_json.dumps({"ok": True, "colors": colors}))
+    except Exception as e:
+        print(_json.dumps({"ok": False, "error": str(e)}))
+
+
 # ─── tag コマンド（用途タグ自動付与）──────────────────────
 
 def cmd_tag(args):
@@ -1648,6 +1683,11 @@ def main():
     p_edit.add_argument("--rembg",      action="store_true")
     p_edit.add_argument("--save-as",    default="copy", choices=["copy","overwrite"])
 
+    # palette コマンド
+    p_palette = sub.add_parser("palette", help="画像からカラーパレットを抽出")
+    p_palette.add_argument("path", help="IMAGES_DIR からの相対パス")
+    p_palette.add_argument("--n", type=int, default=5, help="抽出色数")
+
     # tag コマンド
     p_tag = sub.add_parser("tag", help="カテゴリをもとに用途タグを自動付与")
     p_tag.add_argument("--dry-run", action="store_true", help="プレビューのみ（変更しない）")
@@ -1703,6 +1743,7 @@ def main():
         "upscale": cmd_upscale,
         "analyze": cmd_analyze,
         "edit": cmd_edit,
+        "palette": cmd_palette,
         "tag": cmd_tag,
         "caption": cmd_caption,
         "embed": cmd_embed,

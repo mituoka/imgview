@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, DragEvent } from "react";
 import { FolderInfo } from "@/types";
 import RunImgtoolsPanel from "@/components/RunImgtoolsPanel";
 
@@ -14,6 +14,7 @@ type Props = {
   loading: boolean;
   onRefresh: () => void;
   currentFolder: string | null;
+  onImageMoved?: () => void;
 };
 
 function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
@@ -70,7 +71,32 @@ export default function Sidebar({
   loading,
   onRefresh,
   currentFolder,
+  onImageMoved,
 }: Props) {
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+
+  const handleDrop = async (e: React.DragEvent, targetFolder: string) => {
+    e.preventDefault();
+    setDragOverFolder(null);
+    const imgPath = e.dataTransfer.getData("imagePath");
+    if (!imgPath) return;
+    try {
+      const res = await fetch("/api/images/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: imgPath, targetFolder }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        console.error("Move failed:", data.error);
+        return;
+      }
+      onImageMoved?.();
+    } catch (err) {
+      console.error("Move error:", err);
+    }
+  };
+
   return (
     <aside className="w-56 flex-shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col overflow-y-auto">
       <div className="p-4 border-b border-gray-800">
@@ -113,9 +139,17 @@ export default function Sidebar({
               <li key={folder.name}>
                 <button
                   onClick={() => onSelectFolder(folder.name)}
+                  onDragOver={(e: DragEvent<HTMLButtonElement>) => {
+                    e.preventDefault();
+                    setDragOverFolder(folder.name);
+                  }}
+                  onDragLeave={() => setDragOverFolder(null)}
+                  onDrop={(e: DragEvent<HTMLButtonElement>) => handleDrop(e, folder.name)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded text-sm transition-colors ${
                     selectedFolder === folder.name
                       ? "bg-blue-600 text-white"
+                      : dragOverFolder === folder.name
+                      ? "bg-gray-700 text-gray-100 ring-2 ring-blue-500"
                       : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
                   }`}
                 >

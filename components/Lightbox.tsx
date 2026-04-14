@@ -17,6 +17,7 @@ type Props = {
   onDelete: (image: ImageItem) => void;
   onUsageTagsChange?: (path: string, tags: string[]) => void;
   onEdit?: () => void;
+  onFavoriteChange?: (path: string, favorite: boolean) => void;
 };
 
 // タグの色クラスマップ
@@ -58,6 +59,7 @@ const SHORTCUTS = [
   { key: "Esc", desc: "閉じる（ズーム中はリセット）" },
   { key: "+ −", desc: "ズームイン / アウト" },
   { key: "0", desc: "ズームリセット" },
+  { key: "Delete", desc: "削除確認" },
   { key: "ダブルクリック", desc: "ズームイン / リセット" },
   { key: "ホイール", desc: "ズーム（カーソル中心）" },
   { key: "ドラッグ", desc: "ズーム中に移動" },
@@ -101,7 +103,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 export default function Lightbox({
   image, index, total, apiBase,
   prevImage, nextImage,
-  onClose, onPrev, onNext, onDelete, onUsageTagsChange, onEdit,
+  onClose, onPrev, onNext, onDelete, onUsageTagsChange, onEdit, onFavoriteChange,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
 
@@ -205,6 +207,41 @@ export default function Lightbox({
     }
   }, [src]);
 
+  // お気に入り
+  const [favorite, setFavorite] = useState<boolean>(image.favorite ?? false);
+  const handleToggleFavorite = useCallback(async () => {
+    const prev = favorite;
+    const next = !prev;
+    setFavorite(next); // 楽観的更新
+    try {
+      const res = await fetch("/api/images/favorite", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: image.path, favorite: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      onFavoriteChange?.(image.path, next);
+    } catch (e) {
+      console.error(e);
+      setFavorite(prev); // ロールバック
+    }
+  }, [favorite, image.path, onFavoriteChange]);
+
+  // カラーパレット
+  const [palette, setPalette] = useState<string[] | null>(null);
+  const [paletteLoading, setPaletteLoading] = useState(false);
+  const [copiedColor, setCopiedColor] = useState<string | null>(null);
+
+  const handleCopyColor = useCallback(async (color: string) => {
+    try {
+      await navigator.clipboard.writeText(color);
+      setCopiedColor(color);
+      setTimeout(() => setCopiedColor(null), 1500);
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
+
   // ショートカット一覧
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -223,7 +260,25 @@ export default function Lightbox({
     setCopyStatus("idle");
     setUsageTags(image.usage_tags ?? []);
     setShowTagDropdown(false);
-  }, [image.path, image.usage_tags]);
+    setFavorite(image.favorite ?? false);
+    setPalette(null);
+  }, [image.path, image.usage_tags, image.favorite]);
+
+  // カラーパレット取得（画像変更時）
+  useEffect(() => {
+    setPaletteLoading(true);
+    fetch(`/api/images/palette?path=${encodeURIComponent(image.path)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok && Array.isArray(data.colors)) {
+          setPalette(data.colors);
+        } else {
+          setPalette(null);
+        }
+      })
+      .catch(() => setPalette(null))
+      .finally(() => setPaletteLoading(false));
+  }, [image.path]);
 
   // 隣接画像のプリロード
   useEffect(() => {
@@ -322,6 +377,9 @@ export default function Lightbox({
       if (isZoomed) { setView({ zoom: 1, x: 0, y: 0 }); return; }
       onClose();
     }
+    if (e.key === "Delete" && !showShortcuts) {
+      onDelete(image);
+    }
     if (e.key === "ArrowLeft") onPrev();
     if (e.key === "ArrowRight") onNext();
     if (e.key === "+" || e.key === "=") {
@@ -337,7 +395,7 @@ export default function Lightbox({
       });
     }
     if (e.key === "0") setView({ zoom: 1, x: 0, y: 0 });
-  }, [isZoomed, showShortcuts, onClose, onPrev, onNext]);
+  }, [isZoomed, showShortcuts, onClose, onPrev, onNext, onDelete, image]);
 
   useEffect(() => {
     document.addEventListener("keydown", handleKeyDown);
@@ -361,6 +419,19 @@ export default function Lightbox({
         <span className="text-gray-400 text-sm">{index + 1} / {total}</span>
         <span className="text-gray-200 text-sm font-medium truncate mx-4 max-w-md">{image.filename}</span>
         <div className="flex items-center gap-2">
+          {/* お気に入りボタン */}
+          <button
+            onClick={handleToggleFavorite}
+            title={favorite ? "お気に入りを解除" : "お気に入りに追加"}
+            className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
+              favorite
+                ? "text-red-400 hover:text-red-300"
+                : "text-gray-400 hover:text-gray-200"
+            }`}
+          >
+            {favorite ? "♥" : "♡"}
+          </button>
+
           {/* クリップボードコピー */}
           <button
             onClick={handleCopy}
@@ -597,6 +668,36 @@ export default function Lightbox({
               </div>
             )}
           </div>
+        </div>
+
+        {/* カラーパレット */}
+        <div className="flex items-center gap-2 border-l border-gray-700 pl-4">
+          <span className="text-gray-500 text-xs flex-shrink-0">カラー:</span>
+          {paletteLoading ? (
+            <div className="flex gap-1.5">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="w-5 h-5 rounded-full bg-gray-700 animate-pulse" />
+              ))}
+            </div>
+          ) : palette ? (
+            <div className="flex gap-1.5">
+              {palette.map((color) => (
+                <button
+                  key={color}
+                  title={copiedColor === color ? "✓ コピー済み" : color}
+                  onClick={() => handleCopyColor(color)}
+                  className="relative w-5 h-5 rounded-full border border-white/20 hover:scale-125 transition-transform flex items-center justify-center"
+                  style={{ backgroundColor: color }}
+                >
+                  {copiedColor === color && (
+                    <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-white bg-black/70 rounded px-1 whitespace-nowrap">
+                      ✓
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 

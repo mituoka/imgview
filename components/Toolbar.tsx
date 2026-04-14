@@ -21,6 +21,8 @@ type Props = {
   onBulkDelete: () => void;
   selectedUsageTag: string | null;
   onSelectUsageTag: (tag: string | null) => void;
+  favoritesOnly: boolean;
+  onToggleFavoritesOnly: () => void;
 };
 
 const ORIENTATION_OPTIONS: { value: OrientationFilter; label: string }[] = [
@@ -45,6 +47,8 @@ export default function Toolbar({
   onBulkDelete,
   selectedUsageTag,
   onSelectUsageTag,
+  favoritesOnly,
+  onToggleFavoritesOnly,
 }: Props) {
   const [usageOpen, setUsageOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -160,6 +164,19 @@ export default function Toolbar({
           </div>
         )}
       </div>
+
+      {/* お気に入りフィルター */}
+      <button
+        onClick={onToggleFavoritesOnly}
+        title="お気に入りのみ表示"
+        className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+          favoritesOnly
+            ? "bg-red-900/40 border-red-600 text-red-400"
+            : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"
+        }`}
+      >
+        {favoritesOnly ? "♥" : "♡"}
+      </button>
 
       {/* 向きフィルター */}
       <div className="flex items-center gap-0.5 bg-gray-800 rounded-lg p-0.5">

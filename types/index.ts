@@ -7,6 +7,7 @@ export type ImageItem = {
   size: number;
   mtime: number;
   usage_tags?: string[];
+  favorite?: boolean;
 };
 
 export const USAGE_TAGS: { value: string; label: string; color: string }[] = [

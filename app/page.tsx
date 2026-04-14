@@ -39,6 +39,12 @@ export default function Home() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
+  // お気に入りフィルタ
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  // グリッドキーボードナビゲーション
+  const [gridFocusIndex, setGridFocusIndex] = useState<number | null>(null);
+
   // AI 検索状態
   const [aiSearching, setAiSearching] = useState(false);
   const [aiResults, setAiResults] = useState<ImageItem[] | null>(null);
@@ -134,8 +140,12 @@ export default function Home() {
       filtered = filtered.filter((img) => img.usage_tags?.includes(selectedUsageTag));
     }
 
+    if (favoritesOnly) {
+      filtered = filtered.filter((img) => img.favorite);
+    }
+
     return filtered;
-  }, [images, search, orientation, dimensionMap, selectedUsageTag]);
+  }, [images, search, orientation, dimensionMap, selectedUsageTag, favoritesOnly, aiResults]);
 
   // filteredImages が縮小したとき lightboxIndex を範囲内に収める
   useEffect(() => {
@@ -143,6 +153,57 @@ export default function Home() {
       setLightboxIndex(filteredImages.length > 0 ? filteredImages.length - 1 : null);
     }
   }, [filteredImages.length, lightboxIndex]);
+
+  // グリッドキーボードナビゲーション（ライトボックスが閉じているとき）
+  useEffect(() => {
+    if (lightboxIndex !== null) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 検索ボックスにフォーカスがある場合は無視
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) return;
+
+      if (e.key === "ArrowRight") {
+        e.preventDefault();
+        setGridFocusIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.min(prev + 1, filteredImages.length - 1);
+        });
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        setGridFocusIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.max(prev - 1, 0);
+        });
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setGridFocusIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.min(prev + columns, filteredImages.length - 1);
+        });
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setGridFocusIndex((prev) => {
+          if (prev === null) return 0;
+          return Math.max(prev - columns, 0);
+        });
+      } else if (e.key === "Enter") {
+        if (gridFocusIndex !== null) {
+          setLightboxIndex(gridFocusIndex);
+        }
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [lightboxIndex, filteredImages.length, columns, gridFocusIndex]);
+
+  // ライトボックスが開いたらグリッドフォーカスをリセット
+  useEffect(() => {
+    if (lightboxIndex !== null) {
+      setGridFocusIndex(null);
+    }
+  }, [lightboxIndex]);
 
   const totalCount = folders.reduce((sum, f) => sum + f.count, 0);
 
@@ -235,6 +296,16 @@ export default function Home() {
     );
   }, []);
 
+  // お気に入り変更時に images と aiResults を更新
+  const handleFavoriteChange = useCallback((path: string, favorite: boolean) => {
+    setImages((prev) =>
+      prev.map((img) => img.path === path ? { ...img, favorite } : img)
+    );
+    setAiResults((prev) =>
+      prev ? prev.map((img) => img.path === path ? { ...img, favorite } : img) : null
+    );
+  }, []);
+
   return (
     <div className="flex h-full overflow-hidden">
       <Sidebar
@@ -245,6 +316,7 @@ export default function Home() {
         loading={loadingFolders}
         onRefresh={handleRefresh}
         currentFolder={selectedFolder}
+        onImageMoved={handleRefresh}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -276,6 +348,8 @@ export default function Home() {
             onBulkDelete={handleBulkDelete}
             selectedUsageTag={selectedUsageTag}
             onSelectUsageTag={setSelectedUsageTag}
+            favoritesOnly={favoritesOnly}
+            onToggleFavoritesOnly={() => setFavoritesOnly((v) => !v)}
           />
         </div>
 
@@ -290,7 +364,9 @@ export default function Home() {
             onDelete={handleDeleteRequest}
             onToggleSelect={handleToggleSelect}
             onDimensionLoad={handleDimensionLoad}
+            onFavoriteChange={handleFavoriteChange}
             apiBase={API_BASE}
+            focusedIndex={gridFocusIndex}
           />
         </div>
       </main>
@@ -309,6 +385,7 @@ export default function Home() {
           onDelete={handleDeleteRequest}
           onUsageTagsChange={handleUsageTagsChange}
           onEdit={() => lightboxIndex !== null && setEditingImage(filteredImages[lightboxIndex])}
+          onFavoriteChange={handleFavoriteChange}
         />
       )}
 

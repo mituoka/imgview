@@ -23,6 +23,7 @@ type CacheEntry = {
   category?: string;
   name?: string;
   usage_tags?: string[];
+  favorite?: boolean;
 };
 
 function loadCache(): Record<string, CacheEntry> {
@@ -88,13 +89,14 @@ export async function GET(request: NextRequest) {
   const cache = loadCache();
   let images = scanImages(IMAGES_ROOT, IMAGES_ROOT);
 
-  // Attach category and usage_tags from cache
+  // Attach category, usage_tags, and favorite from cache
   images = images.map((img) => {
     const cached = cache[img.id];
     return {
       ...img,
       category: cached?.category,
       usage_tags: cached?.usage_tags ?? [],
+      favorite: cached?.favorite ?? false,
     };
   });
 

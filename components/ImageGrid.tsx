@@ -13,7 +13,9 @@ type Props = {
   onDelete: (image: ImageItem) => void;
   onToggleSelect: (image: ImageItem) => void;
   onDimensionLoad?: (path: string, w: number, h: number) => void;
+  onFavoriteChange?: (path: string, favorite: boolean) => void;
   apiBase: string;
+  focusedIndex?: number | null;
 };
 
 type ThumbnailProps = {
@@ -22,10 +24,12 @@ type ThumbnailProps = {
   priority: boolean;
   selectMode: boolean;
   selected: boolean;
+  focused: boolean;
   onImageClick: (index: number) => void;
   onDelete: (image: ImageItem) => void;
   onToggleSelect: (image: ImageItem) => void;
   onDimensionLoad?: (path: string, w: number, h: number) => void;
+  onFavoriteChange?: (path: string, favorite: boolean) => void;
   apiBase: string;
 };
 
@@ -40,11 +44,14 @@ const INITIAL_COUNT = 120;
 const INCREMENT = 60;
 
 function Thumbnail({
-  image, index, priority, selectMode, selected,
-  onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
+  image, index, priority, selectMode, selected, focused,
+  onImageClick, onDelete, onToggleSelect, onDimensionLoad, onFavoriteChange, apiBase,
 }: ThumbnailProps) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [isFavorite, setIsFavorite] = useState(image.favorite ?? false);
+  const [isDragging, setIsDragging] = useState(false);
+  const elemRef = useRef<HTMLDivElement>(null);
 
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
 
@@ -56,15 +63,52 @@ function Thumbnail({
     }
   };
 
+  const handleFavoriteClick = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const prev = isFavorite;
+    const next = !prev;
+    setIsFavorite(next); // 楽観的更新
+    try {
+      const res = await fetch("/api/images/favorite", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: image.path, favorite: next }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      onFavoriteChange?.(image.path, next);
+    } catch (e) {
+      console.error(e);
+      setIsFavorite(prev); // ロールバック
+    }
+  };
+
+  // フォーカス時に scrollIntoView
+  useEffect(() => {
+    if (focused && elemRef.current) {
+      elemRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [focused]);
+
   return (
     <div
+      ref={elemRef}
       role="button"
       tabIndex={0}
+      draggable={true}
       onClick={handleClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
-      className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none ${
+      onDragStart={(e) => {
+        e.dataTransfer.setData("imagePath", image.path);
+        setIsDragging(true);
+      }}
+      onDragEnd={() => setIsDragging(false)}
+      className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none transition-opacity ${
+        isDragging ? "opacity-50" : "opacity-100"
+      } ${
         selectMode && selected
           ? "ring-2 ring-blue-500"
+          : focused
+          ? "ring-2 ring-white/70"
           : "focus-visible:ring-2 focus-visible:ring-blue-500"
       }`}
     >
@@ -107,7 +151,18 @@ function Thumbnail({
       {/* 通常モード: ホバーオーバーレイ */}
       {!selectMode && (
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/50 transition-all duration-200 flex flex-col justify-between p-2 opacity-0 group-hover:opacity-100">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-1">
+            {/* お気に入りボタン */}
+            <button
+              onClick={handleFavoriteClick}
+              className={`w-7 h-7 flex items-center justify-center rounded-full bg-black/60 hover:bg-black/80 text-sm transition-colors ${
+                isFavorite ? "text-red-400" : "text-gray-300 hover:text-red-400"
+              }`}
+              aria-label={isFavorite ? "お気に入り解除" : "お気に入り追加"}
+            >
+              {isFavorite ? "♥" : "♡"}
+            </button>
+            {/* 削除ボタン */}
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(image); }}
               className="w-7 h-7 flex items-center justify-center rounded-full bg-red-600/80 hover:bg-red-500 text-white text-xs transition-colors"
@@ -122,13 +177,21 @@ function Thumbnail({
           </div>
         </div>
       )}
+
+      {/* お気に入り常時表示（ホバーしなくても見える） */}
+      {!selectMode && isFavorite && (
+        <div className="absolute top-2 right-2 text-red-400 text-sm pointer-events-none opacity-80 group-hover:opacity-0 transition-opacity">
+          ♥
+        </div>
+      )}
     </div>
   );
 }
 
 export default function ImageGrid({
   images, loading, columns, selectMode, selectedPaths,
-  onImageClick, onDelete, onToggleSelect, onDimensionLoad, apiBase,
+  onImageClick, onDelete, onToggleSelect, onDimensionLoad, onFavoriteChange, apiBase,
+  focusedIndex,
 }: Props) {
   const colClass = COL_CLASS[columns] ?? "columns-3";
   const [displayCount, setDisplayCount] = useState(INITIAL_COUNT);
@@ -192,10 +255,12 @@ export default function ImageGrid({
               priority={index < PRIORITY_COUNT}
               selectMode={selectMode}
               selected={selectedPaths.has(image.path)}
+              focused={focusedIndex === index}
               onImageClick={onImageClick}
               onDelete={onDelete}
               onToggleSelect={onToggleSelect}
               onDimensionLoad={onDimensionLoad}
+              onFavoriteChange={onFavoriteChange}
               apiBase={apiBase}
             />
           </div>
