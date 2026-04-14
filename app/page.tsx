@@ -225,7 +225,7 @@ export default function Home() {
     setAiResults(null);
   }, []);
 
-  // 利用先タグ変更時に images と aiResults を更新
+  // 用途タグ変更時に images と aiResults を更新
   const handleUsageTagsChange = useCallback((path: string, tags: string[]) => {
     setImages((prev) =>
       prev.map((img) => img.path === path ? { ...img, usage_tags: tags } : img)

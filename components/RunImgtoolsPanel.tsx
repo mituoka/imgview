@@ -22,7 +22,7 @@ const SECTIONS: Section[] = [
     label: "AI処理",
     commands: [
       { id: "analyze", label: "AI一括処理", desc: "分類 → 品質チェック → キャプション → ベクトル化" },
-      { id: "tag",     label: "利用先タグ自動付与", desc: "カテゴリをもとに利用先タグを一括付与" },
+      { id: "tag",     label: "用途タグ自動付与", desc: "カテゴリをもとに用途タグを一括付与" },
     ],
   },
   {

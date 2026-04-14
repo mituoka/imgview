@@ -105,7 +105,7 @@ export default function Toolbar({
         )}
       </div>
 
-      {/* 利用先フィルター（プルダウン） */}
+      {/* 用途フィルター（プルダウン） */}
       <div ref={dropdownRef} className="relative">
         <button
           onClick={() => setUsageOpen((v) => !v)}
@@ -115,7 +115,7 @@ export default function Toolbar({
               : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"
           }`}
         >
-          <span>{currentTag ? currentTag.label : "利用先"}</span>
+          <span>{currentTag ? currentTag.label : "用途"}</span>
           <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>

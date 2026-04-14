@@ -77,7 +77,7 @@ CATEGORY_LABELS = {
     "other": "Other",
 }
 
-# ─── 利用先タグ ─────────────────────────────────────────
+# ─── 用途タグ ─────────────────────────────────────────
 USAGE_TAG_LABELS = {
     "sp_wallpaper": "スマホ壁紙",
     "pc_wallpaper": "PC壁紙",
@@ -87,7 +87,7 @@ USAGE_TAG_LABELS = {
     "thumbnail":    "サムネイル",
 }
 
-# カテゴリ → デフォルト利用先タグ のマッピング
+# カテゴリ → デフォルト用途タグ のマッピング
 CATEGORY_TO_USAGE_TAGS: dict[str, list[str]] = {
     "anime_illustration": ["sp_wallpaper", "sns"],
     "artwork":            ["sp_wallpaper", "pc_wallpaper"],
@@ -1389,7 +1389,7 @@ def cmd_edit(args):
         print(_json.dumps({"ok": False, "error": str(e), "trace": traceback.format_exc()}))
 
 
-# ─── tag コマンド（利用先タグ自動付与）──────────────────────
+# ─── tag コマンド（用途タグ自動付与）──────────────────────
 
 def cmd_tag(args):
     """カテゴリをもとに usage_tags を自動付与する"""
@@ -1649,7 +1649,7 @@ def main():
     p_edit.add_argument("--save-as",    default="copy", choices=["copy","overwrite"])
 
     # tag コマンド
-    p_tag = sub.add_parser("tag", help="カテゴリをもとに利用先タグを自動付与")
+    p_tag = sub.add_parser("tag", help="カテゴリをもとに用途タグを自動付与")
     p_tag.add_argument("--dry-run", action="store_true", help="プレビューのみ（変更しない）")
     p_tag.add_argument("--force", action="store_true", help="タグ済み画像も上書き")
 

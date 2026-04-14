@@ -105,7 +105,7 @@ export default function Lightbox({
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
 
-  // 利用先タグ
+  // 用途タグ
   const [usageTags, setUsageTags] = useState<string[]>(image.usage_tags ?? []);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
 
@@ -544,9 +544,9 @@ export default function Lightbox({
           <span className="text-gray-300">{new Date(image.mtime).toLocaleDateString("ja-JP")}</span>
         </span>
 
-        {/* 利用先タグ（区切り線付き） */}
+        {/* 用途タグ（区切り線付き） */}
         <div className="flex items-center gap-2 border-l border-gray-700 pl-4 flex-wrap">
-          <span className="text-gray-500 text-xs flex-shrink-0">利用先:</span>
+          <span className="text-gray-500 text-xs flex-shrink-0">用途:</span>
           {usageTags.map((tagValue) => {
             const tagDef = USAGE_TAGS.find((t) => t.value === tagValue);
             if (!tagDef) return null;
