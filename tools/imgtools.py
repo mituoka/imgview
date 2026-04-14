@@ -1262,6 +1262,133 @@ def cmd_embed(args):
     print(f"\nembedding 生成完了！ChromaDB: {CHROMA_DIR}")
 
 
+# ─── edit コマンド（画像編集・Pillow）──────────────────────
+
+def cmd_edit(args):
+    """
+    画像編集コマンド。引数で指定した調整を適用して保存する。
+    出力: JSON {"ok": true, "path": "..."} or {"ok": false, "error": "..."}
+    """
+    import json as _json
+    from PIL import ImageEnhance, ImageOps, ImageFilter
+
+    try:
+        src_rel = args.path  # IMAGES_DIR からの相対パス
+        src = BASE_DIR / src_rel
+
+        if not src.exists():
+            print(_json.dumps({"ok": False, "error": f"File not found: {src_rel}"}))
+            return
+
+        img = Image.open(src)
+        if img.mode in ("P", "RGBA") and not args.rembg:
+            img = img.convert("RGB")
+        elif img.mode not in ("RGB", "RGBA", "L"):
+            img = img.convert("RGB")
+
+        # ── 調整 ────────────────────────────────────────────
+        if args.brightness != 100:
+            img = ImageEnhance.Brightness(img.convert("RGB")).enhance(args.brightness / 100)
+        if args.contrast != 100:
+            img = ImageEnhance.Contrast(img.convert("RGB")).enhance(args.contrast / 100)
+        if args.saturation != 100:
+            img = ImageEnhance.Color(img.convert("RGB")).enhance(args.saturation / 100)
+        if args.sharpness != 100:
+            img = ImageEnhance.Sharpness(img.convert("RGB")).enhance(args.sharpness / 100)
+
+        # ── プリセットフィルター ─────────────────────────────
+        if args.filter == "mono":
+            img = ImageOps.grayscale(img).convert("RGB")
+        elif args.filter == "sepia":
+            img = ImageOps.grayscale(img).convert("RGB")
+            w, h = img.size
+            pixels = img.load()
+            for y in range(h):
+                for x in range(w):
+                    r, g, b = pixels[x, y]  # type: ignore
+                    pixels[x, y] = (  # type: ignore
+                        min(255, int(r * 1.07 + g * 0.74 + b * 0.28)),
+                        min(255, int(r * 0.95 + g * 0.88 + b * 0.48)),
+                        min(255, int(r * 0.75 + g * 0.60 + b * 0.62)),
+                    )
+        elif args.filter == "vivid":
+            img = ImageEnhance.Color(img.convert("RGB")).enhance(1.6)
+            img = ImageEnhance.Contrast(img).enhance(1.1)
+        elif args.filter == "cool":
+            from PIL import ImageFilter as _IF
+            img = img.convert("RGB")
+        elif args.filter == "blur":
+            img = img.filter(ImageFilter.GaussianBlur(radius=2))
+
+        # ── 回転・反転 ───────────────────────────────────────
+        if args.flip_h:
+            img = ImageOps.mirror(img)
+        if args.flip_v:
+            img = ImageOps.flip(img)
+        if args.rotation != 0:
+            img = img.rotate(-args.rotation, expand=True)
+
+        # ── トリミング ───────────────────────────────────────
+        # crop = "x,y,w,h" (ピクセル値)
+        if args.crop:
+            try:
+                cx, cy, cw, ch = map(int, args.crop.split(","))
+                img = img.crop((cx, cy, cx + cw, cy + ch))
+            except Exception as e:
+                print(_json.dumps({"ok": False, "error": f"Invalid crop: {e}"}))
+                return
+
+        # ── リサイズ ─────────────────────────────────────────
+        # resize = "w,h"
+        if args.resize:
+            try:
+                rw, rh = map(int, args.resize.split(","))
+                img = img.resize((rw, rh), Image.LANCZOS)
+            except Exception as e:
+                print(_json.dumps({"ok": False, "error": f"Invalid resize: {e}"}))
+                return
+
+        # ── 背景除去 ─────────────────────────────────────────
+        if args.rembg:
+            try:
+                from rembg import remove as rembg_remove
+                img = rembg_remove(img)
+            except ImportError:
+                print(_json.dumps({"ok": False, "error": "rembg not installed. Run: pip install rembg"}))
+                return
+
+        # ── 保存 ─────────────────────────────────────────────
+        if args.save_as == "copy":
+            stem = src.stem
+            suffix = ".png" if args.rembg else src.suffix
+            dest = src.parent / f"{stem}_edited{suffix}"
+            # 重複回避
+            counter = 1
+            while dest.exists():
+                dest = src.parent / f"{stem}_edited_{counter}{suffix}"
+                counter += 1
+        else:
+            dest = src
+            suffix = src.suffix
+
+        save_fmt = "PNG" if (args.rembg or suffix.lower() == ".png") else "JPEG"
+        save_kwargs: dict = {}
+        if save_fmt == "JPEG":
+            save_kwargs["quality"] = 92
+            save_kwargs["optimize"] = True
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+
+        img.save(dest, format=save_fmt, **save_kwargs)
+
+        dest_rel = str(dest.relative_to(BASE_DIR))
+        print(_json.dumps({"ok": True, "path": dest_rel}))
+
+    except Exception as e:
+        import traceback
+        print(_json.dumps({"ok": False, "error": str(e), "trace": traceback.format_exc()}))
+
+
 # ─── tag コマンド（利用先タグ自動付与）──────────────────────
 
 def cmd_tag(args):
@@ -1504,6 +1631,23 @@ def main():
     # analyze コマンド
     sub.add_parser("analyze", help="AI一括処理: 分類 → 品質チェック → キャプション → ベクトル化")
 
+    # edit コマンド
+    p_edit = sub.add_parser("edit", help="画像編集（Pillow）")
+    p_edit.add_argument("path", help="IMAGES_DIR からの相対パス")
+    p_edit.add_argument("--brightness", type=int, default=100)
+    p_edit.add_argument("--contrast",   type=int, default=100)
+    p_edit.add_argument("--saturation", type=int, default=100)
+    p_edit.add_argument("--sharpness",  type=int, default=100)
+    p_edit.add_argument("--filter",     default="none",
+                        choices=["none","mono","sepia","vivid","blur"])
+    p_edit.add_argument("--rotation",   type=int, default=0)
+    p_edit.add_argument("--flip-h",     action="store_true")
+    p_edit.add_argument("--flip-v",     action="store_true")
+    p_edit.add_argument("--crop",       help="x,y,w,h (px)")
+    p_edit.add_argument("--resize",     help="w,h (px)")
+    p_edit.add_argument("--rembg",      action="store_true")
+    p_edit.add_argument("--save-as",    default="copy", choices=["copy","overwrite"])
+
     # tag コマンド
     p_tag = sub.add_parser("tag", help="カテゴリをもとに利用先タグを自動付与")
     p_tag.add_argument("--dry-run", action="store_true", help="プレビューのみ（変更しない）")
@@ -1558,6 +1702,7 @@ def main():
         "quality": cmd_quality,
         "upscale": cmd_upscale,
         "analyze": cmd_analyze,
+        "edit": cmd_edit,
         "tag": cmd_tag,
         "caption": cmd_caption,
         "embed": cmd_embed,

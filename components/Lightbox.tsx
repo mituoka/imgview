@@ -16,6 +16,7 @@ type Props = {
   onNext: () => void;
   onDelete: (image: ImageItem) => void;
   onUsageTagsChange?: (path: string, tags: string[]) => void;
+  onEdit?: () => void;
 };
 
 // タグの色クラスマップ
@@ -100,7 +101,7 @@ function ShortcutsModal({ onClose }: { onClose: () => void }) {
 export default function Lightbox({
   image, index, total, apiBase,
   prevImage, nextImage,
-  onClose, onPrev, onNext, onDelete, onUsageTagsChange,
+  onClose, onPrev, onNext, onDelete, onUsageTagsChange, onEdit,
 }: Props) {
   const src = `${apiBase}/api/images/file/${encodeURIComponent(image.path).replace(/%2F/g, "/")}`;
 
@@ -418,6 +419,14 @@ export default function Lightbox({
             {upscaleStatus === "error" && "✗ 再試行"}
             {upscaleStatus === "idle" && "高画質化"}
           </button>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded-lg transition-colors"
+            >
+              編集
+            </button>
+          )}
           <button
             onClick={() => onDelete(image)}
             className="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 text-white text-sm rounded-lg transition-colors"

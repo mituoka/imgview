@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
 import Toolbar, { OrientationFilter } from "@/components/Toolbar";
+import ImageEditor from "@/components/ImageEditor";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -28,6 +29,7 @@ export default function Home() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<ImageItem | null>(null);
   const [selectedUsageTag, setSelectedUsageTag] = useState<string | null>(null);
+  const [editingImage, setEditingImage] = useState<ImageItem | null>(null);
 
   // ツールバー状態
   const [search, setSearch] = useState("");
@@ -293,7 +295,22 @@ export default function Home() {
           onNext={handleLightboxNext}
           onDelete={handleDeleteRequest}
           onUsageTagsChange={handleUsageTagsChange}
+          onEdit={() => lightboxIndex !== null && setEditingImage(filteredImages[lightboxIndex])}
         />
+      )}
+
+      {editingImage && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4">
+          <ImageEditor
+            image={editingImage}
+            apiBase={API_BASE}
+            onClose={() => setEditingImage(null)}
+            onSaved={() => {
+              setEditingImage(null);
+              setRefreshKey((k) => k + 1);
+            }}
+          />
+        </div>
       )}
 
       {confirmDelete && (
