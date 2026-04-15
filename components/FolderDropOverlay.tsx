@@ -28,15 +28,25 @@ export default function FolderDropOverlay({ visible, folders, onDrop }: Props) {
   const handleDrop = (e: React.DragEvent, folder: string) => {
     e.preventDefault();
     setDragOverFolder(null);
-    const imgPath = e.dataTransfer.getData("imagePath");
-    if (!imgPath) return;
+    const raw = e.dataTransfer.getData("imagePaths");
+    if (!raw) return;
+    let paths: string[];
+    try {
+      paths = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (paths.length === 0) return;
     onDrop(folder);
-    // 実際の移動処理は onDrop に path を渡す必要があるため、ここで fetch する
-    fetch("/api/images/move", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: imgPath, targetFolder: folder }),
-    }).catch(console.error);
+    Promise.allSettled(
+      paths.map((path) =>
+        fetch("/api/images/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path, targetFolder: folder }),
+        })
+      )
+    ).catch(console.error);
   };
 
   return (

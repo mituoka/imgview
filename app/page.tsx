@@ -5,7 +5,7 @@ import { ImageItem, FolderInfo } from "@/types";
 import Sidebar from "@/components/Sidebar";
 import ImageGrid from "@/components/ImageGrid";
 import Lightbox from "@/components/Lightbox";
-import Toolbar, { OrientationFilter } from "@/components/Toolbar";
+import Toolbar, { OrientationFilter, SortOption } from "@/components/Toolbar";
 import ImageEditor from "@/components/ImageEditor";
 import FolderDropOverlay from "@/components/FolderDropOverlay";
 import SuggestMovesModal from "@/components/SuggestMovesModal";
@@ -43,6 +43,9 @@ export default function Home() {
 
   // お気に入りフィルタ
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+
+  // ソート
+  const [sort, setSort] = useState<SortOption>("random");
 
   // グリッドキーボードナビゲーション
   const [gridFocusIndex, setGridFocusIndex] = useState<number | null>(null);
@@ -152,8 +155,16 @@ export default function Home() {
       filtered = filtered.filter((img) => img.favorite);
     }
 
+    if (sort === "mtime_desc") {
+      filtered = [...filtered].sort((a, b) => b.mtime - a.mtime);
+    } else if (sort === "mtime_asc") {
+      filtered = [...filtered].sort((a, b) => a.mtime - b.mtime);
+    } else if (sort === "name_asc") {
+      filtered = [...filtered].sort((a, b) => a.filename.localeCompare(b.filename));
+    }
+
     return filtered;
-  }, [images, search, orientation, dimensionMap, selectedUsageTag, favoritesOnly, aiResults]);
+  }, [images, search, orientation, dimensionMap, selectedUsageTag, favoritesOnly, aiResults, sort]);
 
   // filteredImages が縮小したとき lightboxIndex を範囲内に収める
   useEffect(() => {
@@ -359,6 +370,8 @@ export default function Home() {
             onSelectUsageTag={setSelectedUsageTag}
             favoritesOnly={favoritesOnly}
             onToggleFavoritesOnly={() => setFavoritesOnly((v) => !v)}
+            sort={sort}
+            onSortChange={setSort}
           />
         </div>
 

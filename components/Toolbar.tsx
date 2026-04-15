@@ -4,6 +4,14 @@ import { useState, useRef, useEffect } from "react";
 import { USAGE_TAGS } from "@/types";
 
 export type OrientationFilter = "all" | "landscape" | "portrait";
+export type SortOption = "random" | "mtime_desc" | "mtime_asc" | "name_asc";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "random",     label: "ランダム" },
+  { value: "mtime_desc", label: "新しい順" },
+  { value: "mtime_asc",  label: "古い順" },
+  { value: "name_asc",   label: "名前順" },
+];
 
 type Props = {
   search: string;
@@ -23,12 +31,14 @@ type Props = {
   onSelectUsageTag: (tag: string | null) => void;
   favoritesOnly: boolean;
   onToggleFavoritesOnly: () => void;
+  sort: SortOption;
+  onSortChange: (v: SortOption) => void;
 };
 
 const ORIENTATION_OPTIONS: { value: OrientationFilter; label: string }[] = [
-  { value: "all", label: "全て" },
+  { value: "all",       label: "全て" },
   { value: "landscape", label: "横長" },
-  { value: "portrait", label: "縦長" },
+  { value: "portrait",  label: "縦長" },
 ];
 
 export default function Toolbar({
@@ -49,11 +59,15 @@ export default function Toolbar({
   onSelectUsageTag,
   favoritesOnly,
   onToggleFavoritesOnly,
+  sort,
+  onSortChange,
 }: Props) {
   const [usageOpen, setUsageOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
 
-  // 外クリックで閉じる
+  // 外クリックで用途ドロップダウンを閉じる
   useEffect(() => {
     if (!usageOpen) return;
     const handler = (e: MouseEvent) => {
@@ -65,7 +79,20 @@ export default function Toolbar({
     return () => document.removeEventListener("mousedown", handler);
   }, [usageOpen]);
 
+  // 外クリックでソートドロップダウンを閉じる
+  useEffect(() => {
+    if (!sortOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sortOpen]);
+
   const currentTag = USAGE_TAGS.find((t) => t.value === selectedUsageTag);
+  const currentSort = SORT_OPTIONS.find((s) => s.value === sort);
 
   return (
     <div className="flex items-center gap-2 mb-4 flex-wrap">
@@ -159,6 +186,41 @@ export default function Toolbar({
                 }`}
               >
                 {tag.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ソート（ドロップダウン） */}
+      <div ref={sortDropdownRef} className="relative">
+        <button
+          onClick={() => setSortOpen((v) => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors ${
+            sort !== "random"
+              ? "bg-blue-900/50 border-blue-600 text-blue-300"
+              : "bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          <span>{currentSort?.label ?? "ランダム"}</span>
+          <svg className="w-3 h-3 opacity-60" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8">
+            <path d="M3 4.5l3 3 3-3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        {sortOpen && (
+          <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 min-w-[110px] py-1 overflow-hidden">
+            {SORT_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => { onSortChange(option.value); setSortOpen(false); }}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                  sort === option.value
+                    ? "text-white bg-gray-700"
+                    : "text-gray-300 hover:bg-gray-700 hover:text-white"
+                }`}
+              >
+                {option.label}
               </button>
             ))}
           </div>

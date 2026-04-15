@@ -26,6 +26,7 @@ type ThumbnailProps = {
   priority: boolean;
   selectMode: boolean;
   selected: boolean;
+  selectedPaths: Set<string>;
   focused: boolean;
   onImageClick: (index: number) => void;
   onDelete: (image: ImageItem) => void;
@@ -49,7 +50,7 @@ const INITIAL_COUNT = 120;
 const INCREMENT = 60;
 
 function Thumbnail({
-  image, index, priority, selectMode, selected, focused,
+  image, index, priority, selectMode, selected, selectedPaths, focused,
   onImageClick, onDelete, onToggleSelect, onDimensionLoad, onFavoriteChange, apiBase,
   onDragStartNotify, onDragEndNotify,
 }: ThumbnailProps) {
@@ -104,7 +105,10 @@ function Thumbnail({
       onClick={handleClick}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleClick(); }}
       onDragStart={(e) => {
-        e.dataTransfer.setData("imagePath", image.path);
+        // 選択済み画像を複数選択中にドラッグ → 全選択パスを移動対象にする
+        const isMultiDrag = selected && selectedPaths.size > 1;
+        const paths = isMultiDrag ? Array.from(selectedPaths) : [image.path];
+        e.dataTransfer.setData("imagePaths", JSON.stringify(paths));
         setIsDragging(true);
         // カスタムゴースト（小さいバッジ）
         const ghost = document.createElement("div");
@@ -112,7 +116,7 @@ function Thumbnail({
           "position:fixed;top:-200px;left:0;background:#1f2937;color:#f3f4f6;padding:4px 10px;" +
           "border-radius:6px;font-size:11px;border:1px solid #4b5563;white-space:nowrap;" +
           "box-shadow:0 2px 8px rgba(0,0,0,0.5);pointer-events:none;";
-        ghost.textContent = `📷 ${image.filename}`;
+        ghost.textContent = isMultiDrag ? `📷 ${selectedPaths.size}枚` : `📷 ${image.filename}`;
         document.body.appendChild(ghost);
         e.dataTransfer.setDragImage(ghost, 0, 0);
         setTimeout(() => document.body.removeChild(ghost), 0);
@@ -272,6 +276,7 @@ export default function ImageGrid({
               priority={index < PRIORITY_COUNT}
               selectMode={selectMode}
               selected={selectedPaths.has(image.path)}
+              selectedPaths={selectedPaths}
               focused={focusedIndex === index}
               onImageClick={onImageClick}
               onDelete={onDelete}
