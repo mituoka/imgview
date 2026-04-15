@@ -8,6 +8,7 @@ import Lightbox from "@/components/Lightbox";
 import Toolbar, { OrientationFilter } from "@/components/Toolbar";
 import ImageEditor from "@/components/ImageEditor";
 import FolderDropOverlay from "@/components/FolderDropOverlay";
+import SuggestMovesModal from "@/components/SuggestMovesModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -48,6 +49,9 @@ export default function Home() {
 
   // ドラッグ中フラグ（フォルダオーバーレイ表示制御）
   const [isDraggingImage, setIsDraggingImage] = useState(false);
+
+  // 移動提案モーダル
+  const [suggestFolder, setSuggestFolder] = useState<string | null>(null);
 
   // AI 検索状態
   const [aiSearching, setAiSearching] = useState(false);
@@ -321,6 +325,7 @@ export default function Home() {
         onRefresh={handleRefresh}
         currentFolder={selectedFolder}
         onImageMoved={handleRefresh}
+        onSuggestMoves={setSuggestFolder}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -408,6 +413,16 @@ export default function Home() {
             }}
           />
         </div>
+      )}
+
+      {suggestFolder && (
+        <SuggestMovesModal
+          folder={suggestFolder}
+          folders={folders}
+          apiBase={API_BASE}
+          onClose={() => setSuggestFolder(null)}
+          onMoved={handleRefresh}
+        />
       )}
 
       <FolderDropOverlay

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { FolderInfo } from "@/types";
 
-type Command = "scan" | "analyze" | "auto" | "upscale" | "tag";
+type Command = "scan" | "analyze" | "auto" | "upscale" | "tag" | "suggest";
 type Status = "idle" | "running" | "done" | "error";
 
 type Section = {
@@ -14,14 +15,15 @@ const SECTIONS: Section[] = [
   {
     label: "ライブラリ",
     commands: [
-      { id: "scan", label: "スキャン", desc: "画像の統計・概要を表示" },
-      { id: "auto", label: "全自動更新", desc: "移動 → 分類 → フォルダ整理" },
+      { id: "scan",    label: "スキャン",    desc: "画像の統計・概要を表示" },
+      { id: "auto",    label: "全自動更新",  desc: "移動 → 分類 → フォルダ整理" },
+      { id: "suggest", label: "誤分類チェック", desc: "現在のフォルダの誤分類を検出・移動提案" },
     ],
   },
   {
     label: "AI処理",
     commands: [
-      { id: "analyze", label: "AI一括処理", desc: "分類 → 品質チェック → キャプション → ベクトル化" },
+      { id: "analyze", label: "AI一括処理",      desc: "分類 → 品質チェック → キャプション → ベクトル化" },
       { id: "tag",     label: "用途タグ自動付与", desc: "カテゴリをもとに用途タグを一括付与" },
     ],
   },
@@ -46,9 +48,11 @@ const UPSCALE_MODELS = [
 type Props = {
   onComplete: () => void;
   currentFolder?: string | null;
+  folders?: FolderInfo[];
+  onSuggestMoves?: (folder: string) => void;
 };
 
-export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
+export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = [], onSuggestMoves }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -63,6 +67,16 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
   const [upscaleScale, setUpscaleScale] = useState(4);
   const [upscaleFolder, setUpscaleFolder] = useState<"current" | "all">("current");
 
+  // suggest オプション
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestSelectedFolder, setSuggestSelectedFolder] = useState<string>("");
+
+  // suggestOpen が開いたとき currentFolder で初期化
+  const initSuggest = () => {
+    setSuggestSelectedFolder(currentFolder ?? (folders[0]?.name ?? ""));
+    setSuggestOpen(true);
+  };
+
   useEffect(() => {
     if (logOpen && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -73,6 +87,7 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
     const label = SECTIONS.flatMap((s) => s.commands).find((c) => c.id === command)?.label ?? command;
     setMenuOpen(false);
     setUpscaleOpen(false);
+    setSuggestOpen(false);
     setLines([]);
     setExitCode(null);
     setStatus("running");
@@ -174,6 +189,9 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
                     if (cmd.id === "upscale") {
                       setMenuOpen(false);
                       setUpscaleOpen(true);
+                    } else if (cmd.id === "suggest") {
+                      setMenuOpen(false);
+                      initSuggest();
                     } else {
                       run(cmd.id);
                     }
@@ -268,6 +286,35 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
         </div>
       )}
 
+      {/* 誤分類チェック フォルダ選択パネル */}
+      {suggestOpen && (
+        <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-20 p-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-100">誤分類チェック</span>
+            <button onClick={() => setSuggestOpen(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 block mb-1">対象フォルダ</label>
+            <select
+              value={suggestSelectedFolder}
+              onChange={(e) => setSuggestSelectedFolder(e.target.value)}
+              className="w-full bg-gray-900 text-gray-200 text-xs rounded px-2 py-1.5 border border-gray-600 focus:border-blue-500 focus:outline-none"
+            >
+              {folders.map((f) => (
+                <option key={f.name} value={f.name}>{f.label} ({f.count})</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => { setSuggestOpen(false); if (suggestSelectedFolder) onSuggestMoves?.(suggestSelectedFolder); }}
+            disabled={!suggestSelectedFolder}
+            className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm rounded transition-colors"
+          >
+            チェック開始
+          </button>
+        </div>
+      )}
+
       {/* ログパネル */}
       {logOpen && (
         <div className="mt-1 bg-gray-950 border border-gray-700 rounded-lg overflow-hidden">
@@ -289,8 +336,8 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder }: Props) {
         </div>
       )}
 
-      {(menuOpen || upscaleOpen) && (
-        <div className="fixed inset-0 z-10" onClick={() => { setMenuOpen(false); setUpscaleOpen(false); }} />
+      {(menuOpen || upscaleOpen || suggestOpen) && (
+        <div className="fixed inset-0 z-10" onClick={() => { setMenuOpen(false); setUpscaleOpen(false); setSuggestOpen(false); }} />
       )}
     </div>
   );

@@ -15,6 +15,7 @@ type Props = {
   onRefresh: () => void;
   currentFolder: string | null;
   onImageMoved?: () => void;
+  onSuggestMoves?: (folder: string) => void;
 };
 
 function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
@@ -72,6 +73,7 @@ export default function Sidebar({
   onRefresh,
   currentFolder,
   onImageMoved,
+  onSuggestMoves,
 }: Props) {
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 
@@ -174,7 +176,7 @@ export default function Sidebar({
         >
           クリーンアップ
         </Link>
-        <RunImgtoolsPanel onComplete={onRefresh} currentFolder={currentFolder} />
+        <RunImgtoolsPanel onComplete={onRefresh} currentFolder={currentFolder} folders={folders} onSuggestMoves={onSuggestMoves} />
       </div>
     </aside>
   );

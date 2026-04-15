@@ -1424,6 +1424,229 @@ def cmd_palette(args):
         print(_json.dumps({"ok": False, "error": str(e)}))
 
 
+# ─── suggest コマンド（フォルダ内の誤分類を提案）───────────
+
+# カテゴリ → 推奨フォルダ名のマッピング
+CATEGORY_TO_FOLDER = {cat: cat for cat in CATEGORIES}
+
+# フォルダ名から「期待されるカテゴリ群」へのマッピング
+# キー: フォルダ名 (部分一致)、値: そのフォルダに適切な category リスト
+FOLDER_EXPECTED_CATEGORIES: list[tuple[str, list[str]]] = [
+    ("anime",       ["anime_illustration"]),
+    ("illust",      ["anime_illustration"]),
+    ("people",      ["photo_people"]),
+    ("person",      ["photo_people"]),
+    ("人物",         ["photo_people"]),
+    ("portrait",    ["photo_people"]),
+    ("landscape",   ["photo_landscape"]),
+    ("nature",      ["photo_landscape"]),
+    ("風景",         ["photo_landscape"]),
+    ("food",        ["photo_food"]),
+    ("食べ物",       ["photo_food"]),
+    ("object",      ["photo_object"]),
+    ("screenshot",  ["screenshot"]),
+    ("screen",      ["screenshot"]),
+    ("meme",        ["meme_funny"]),
+    ("funny",       ["meme_funny"]),
+    ("document",    ["document"]),
+    ("doc",         ["document"]),
+    ("artwork",     ["artwork"]),
+    ("art",         ["artwork"]),
+]
+
+
+def _get_expected_categories(folder_name: str) -> list[str]:
+    """フォルダ名から期待されるカテゴリリストを返す"""
+    fn_lower = folder_name.lower()
+    for key, cats in FOLDER_EXPECTED_CATEGORIES:
+        if key in fn_lower:
+            return cats
+    return []
+
+
+def _suggest_category_by_embedding(img_rel: str, k: int = 15) -> tuple[str | None, float]:
+    """ChromaDB の embedding を使って k-NN 投票でカテゴリを推定する。
+    Returns: (predicted_category, confidence 0-1)  どちらも None/0 なら embedding なし
+    """
+    try:
+        import chromadb  # noqa: F401
+    except ImportError:
+        return None, 0.0
+
+    try:
+        collection = get_chroma_collection()
+        total = collection.count()
+        if total < 2:
+            return None, 0.0
+
+        # 自画像の embedding を取得
+        result = collection.get(ids=[img_rel], include=["embeddings"])
+        if not result["ids"]:
+            return None, 0.0
+
+        embedding = result["embeddings"][0]
+
+        # k+1 件取得して自分自身を除外
+        n = min(k + 1, total)
+        results = collection.query(
+            query_embeddings=[embedding],
+            n_results=n,
+            include=["metadatas", "distances"],
+        )
+
+        neighbors = [
+            (meta, dist)
+            for meta, dist in zip(results["metadatas"][0], results["distances"][0])
+            if meta.get("path") != img_rel and meta.get("category")
+        ][:k]
+
+        if not neighbors:
+            return None, 0.0
+
+        # 距離の逆数で重み付き投票（cosine distance: 近いほど 0 に近い）
+        votes: dict[str, float] = defaultdict(float)
+        for meta, dist in neighbors:
+            cat = meta["category"]
+            weight = 1.0 / (0.001 + dist)
+            votes[cat] += weight
+
+        best_cat = max(votes, key=lambda c: votes[c])
+        confidence = votes[best_cat] / sum(votes.values())
+        return best_cat, round(confidence, 3)
+
+    except Exception:
+        return None, 0.0
+
+
+def cmd_suggest(args):
+    """フォルダ内の誤分類を検出して移動提案（JSON Lines）
+
+    判定優先度:
+      1. ChromaDB embedding による k-NN 投票（最も精度が高い）
+      2. キャッシュの category フィールド（embedding がない場合）
+      3. Ollama ビジョンモデルによる再分類（--force-classify 時）
+    """
+    import json as _json
+
+    folder_name: str = args.folder
+    force_classify: bool = getattr(args, "force_classify", False)
+    knn_k: int = getattr(args, "knn_k", 15)
+    confidence_threshold: float = getattr(args, "confidence", 0.55)
+
+    target_dir = BASE_DIR / folder_name
+    if not target_dir.exists():
+        print(_json.dumps({"error": f"フォルダが見つかりません: {folder_name}"}), flush=True)
+        sys.exit(1)
+
+    expected_cats = _get_expected_categories(folder_name)
+
+    images = find_images(target_dir, recursive=False)
+    if not images:
+        print(_json.dumps({"done": True, "total": 0, "suggestions": []}), flush=True)
+        return
+
+    # ChromaDB が使えるか確認
+    chroma_available = False
+    try:
+        import chromadb  # noqa: F401
+        col = get_chroma_collection()
+        chroma_available = col.count() > 0
+    except Exception:
+        pass
+
+    if chroma_available:
+        print(_json.dumps({"log": f"ChromaDB embedding で k-NN 判定 (k={knn_k}, threshold={confidence_threshold})"}), flush=True)
+    else:
+        print(_json.dumps({"log": "ChromaDB embedding なし。キャッシュ category を使用"}), flush=True)
+
+    # Ollama 生存確認
+    ollama_ok = False
+    try:
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        models = [m["name"] for m in resp.json().get("models", [])]
+        ollama_ok = any(VISION_MODEL.split(":")[0] in m for m in models)
+    except Exception:
+        pass
+
+    cache = load_cache()
+    suggestions = []
+    total = len(images)
+
+    for i, img in enumerate(images):
+        rel = get_cache_key(img)
+        entry = cache.get(rel, {})
+
+        print(_json.dumps({"progress": i + 1, "total": total, "file": img.name}), flush=True)
+
+        category = None
+        confidence = 0.0
+        method = "unknown"
+
+        # ── 1. k-NN embedding 判定 ────────────────────────────────
+        if chroma_available:
+            knn_cat, knn_conf = _suggest_category_by_embedding(rel, k=knn_k)
+            if knn_cat and knn_conf >= confidence_threshold:
+                category = knn_cat
+                confidence = knn_conf
+                method = f"embedding k-NN (conf={knn_conf:.0%})"
+
+        # ── 2. キャッシュの category ──────────────────────────────
+        if not category:
+            cached_cat = entry.get("category")
+            if cached_cat:
+                category = cached_cat
+                confidence = 0.5  # キャッシュは信頼度を中程度に
+                method = "cache"
+
+        # ── 3. Ollama ビジョン再分類 ──────────────────────────────
+        if not category and (ollama_ok or force_classify):
+            try:
+                category = classify_image_with_ollama(img)
+                if rel not in cache:
+                    cache[rel] = {}
+                cache[rel]["category"] = category
+                cache[rel]["name"] = img.name
+                confidence = 0.6
+                method = "ollama vision"
+            except Exception:
+                pass
+
+        if not category:
+            continue  # 判定不能はスキップ
+
+        # ── フォルダとのミスマッチ判定 ────────────────────────────
+        is_mismatch = False
+        if expected_cats:
+            is_mismatch = category not in expected_cats
+        else:
+            is_mismatch = (folder_name.lower() != category.lower())
+
+        if is_mismatch:
+            suggested_folder = CATEGORY_TO_FOLDER.get(category, "other")
+            suggestions.append({
+                "path": rel,
+                "filename": img.name,
+                "current_folder": folder_name,
+                "current_category": category,
+                "current_category_label": CATEGORY_LABELS.get(category, category),
+                "suggested_folder": suggested_folder,
+                "confidence": confidence,
+                "method": method,
+            })
+
+    save_cache(cache)
+
+    # 信頼度降順でソート
+    suggestions.sort(key=lambda s: s["confidence"], reverse=True)
+
+    print(_json.dumps({
+        "done": True,
+        "total": total,
+        "suggestions": suggestions,
+        "chroma_used": chroma_available,
+    }), flush=True)
+
+
 # ─── tag コマンド（用途タグ自動付与）──────────────────────
 
 def cmd_tag(args):
@@ -1688,6 +1911,16 @@ def main():
     p_palette.add_argument("path", help="IMAGES_DIR からの相対パス")
     p_palette.add_argument("--n", type=int, default=5, help="抽出色数")
 
+    # suggest コマンド
+    p_suggest = sub.add_parser("suggest", help="フォルダ内の誤分類画像を検出して移動提案（JSON Lines）")
+    p_suggest.add_argument("folder", help="対象フォルダ名（IMAGES_DIR 内）")
+    p_suggest.add_argument("--force-classify", action="store_true",
+                           help="未分類画像を強制的に Ollama で分類する")
+    p_suggest.add_argument("--knn-k", type=int, default=15, dest="knn_k",
+                           help="k-NN の k 値（デフォルト: 15）")
+    p_suggest.add_argument("--confidence", type=float, default=0.55,
+                           help="k-NN 信頼度の閾値 0-1（デフォルト: 0.55）")
+
     # tag コマンド
     p_tag = sub.add_parser("tag", help="カテゴリをもとに用途タグを自動付与")
     p_tag.add_argument("--dry-run", action="store_true", help="プレビューのみ（変更しない）")
@@ -1749,6 +1982,7 @@ def main():
         "embed": cmd_embed,
         "search": cmd_search,
         "similar": cmd_similar,
+        "suggest": cmd_suggest,
     }
 
     commands[args.command](args)
