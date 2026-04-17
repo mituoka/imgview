@@ -166,7 +166,7 @@ def save_cache(data: dict):
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
-def image_to_base64(path: Path, max_size: int = 512) -> str:
+def image_to_base64(path: Path, max_size: int = 1024) -> str:
     """画像をbase64に変換（リサイズしてOllamaに送る）"""
     with Image.open(path) as img:
         if img.mode in ("RGBA", "P"):
@@ -174,54 +174,65 @@ def image_to_base64(path: Path, max_size: int = 512) -> str:
         img.thumbnail((max_size, max_size))
         from io import BytesIO
         buf = BytesIO()
-        img.save(buf, format="JPEG", quality=80)
+        img.save(buf, format="JPEG", quality=85)
         return base64.b64encode(buf.getvalue()).decode()
+
+
+def _parse_category(answer: str) -> str | None:
+    """モデルの回答からカテゴリを抽出（完全一致→単語境界マッチの順）"""
+    import re
+    cleaned = answer.strip().lower()
+    if cleaned in CATEGORIES:
+        return cleaned
+    for cat in CATEGORIES:
+        if re.search(r'(?<![a-z_])' + re.escape(cat) + r'(?![a-z_])', cleaned):
+            return cat
+    return None
 
 
 def classify_image_with_ollama(path: Path) -> str:
     """Ollamaのビジョンモデルで画像を分類"""
     img_b64 = image_to_base64(path)
 
-    prompt = f"""Classify this image into exactly ONE of the following categories.
-Reply with ONLY the category name, nothing else.
+    prompt = """Classify this image into exactly ONE of these categories.
+Output ONLY the category name on a single line. No explanation.
 
-Categories:
-- anime_illustration (anime, manga, cartoon, illustration, VTuber)
-- photo_people (real photos of people, portraits, selfies)
-- photo_landscape (nature, scenery, buildings, outdoor photos)
-- photo_food (food, drinks, cooking)
-- photo_object (products, items, physical objects)
-- screenshot (screen captures, UI, app screenshots)
-- meme_funny (memes, funny images, reaction images)
-- document (text documents, papers, notes, diagrams)
-- artwork (digital art, paintings, abstract art - NOT anime style)
-- other (anything that doesn't fit above)
+anime_illustration  = 2D anime/manga/cartoon art, hand-drawn or digital illustrations, VTuber avatars, fan art
+photo_people        = real photograph of humans (portrait, selfie, group, celebrity)
+photo_landscape     = real photograph of nature, scenery, cityscape, outdoor environments
+photo_food          = real photograph of food, drinks, cooking, recipes
+photo_object        = real photograph of products, items, gadgets, still life
+screenshot          = computer/phone screen capture including UI, websites, apps, games
+meme_funny          = meme template, image macro, reaction image, humorous internet content
+document            = text-heavy image, scanned document, diagram, chart, slide, notes
+artwork             = non-anime fine art, oil painting, watercolor, abstract art, realistic digital painting
+other               = anything that does not clearly fit the above categories
 
 Category:"""
 
-    try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/generate",
-            json={
-                "model": VISION_MODEL,
-                "prompt": prompt,
-                "images": [img_b64],
-                "stream": False,
-                "options": {"temperature": 0.1},
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-        answer = resp.json()["response"].strip().lower()
-
-        # カテゴリ名を抽出
-        for cat in CATEGORIES:
-            if cat in answer:
+    for attempt in range(2):
+        try:
+            resp = requests.post(
+                f"{OLLAMA_URL}/api/generate",
+                json={
+                    "model": VISION_MODEL,
+                    "prompt": prompt,
+                    "images": [img_b64],
+                    "stream": False,
+                    "options": {"temperature": 0.0 if attempt == 0 else 0.2},
+                },
+                timeout=90,
+            )
+            resp.raise_for_status()
+            answer = resp.json()["response"].strip().lower()
+            cat = _parse_category(answer)
+            if cat:
                 return cat
-        return "other"
-    except Exception as e:
-        print(f"  [ERROR] {path.name}: {e}")
-        return "other"
+        except Exception as e:
+            print(f"  [ERROR] {path.name}: {e}")
+            return "other"
+
+    return "other"
 
 
 # ─── コマンド ───────────────────────────────────────────
@@ -641,6 +652,16 @@ def move_from_download(show_summary: bool = True) -> int:
     return total
 
 
+def _ollama_available() -> bool:
+    """Ollamaが起動していてビジョンモデルが使えるか確認"""
+    try:
+        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
+        models = [m["name"] for m in resp.json().get("models", [])]
+        return any(VISION_MODEL.split(":")[0] in m for m in models)
+    except requests.ConnectionError:
+        return False
+
+
 def cmd_auto(args):
     """全自動処理: download → images → 分類 → 整理"""
     print("=" * 60)
@@ -654,81 +675,60 @@ def cmd_auto(args):
     # ステップ1: 移動
     print("\n[1/3] 📥 ファイル移動中...")
     moved = move_from_download(show_summary=True)
-
     if moved == 0:
-        print("\n✅ 新しいファイルがありません。処理を終了します。")
-        return
+        print("  新しいファイルはありませんでした。")
 
-    # ステップ2: 分類
+    # ステップ2: 分類（Ollama必須）
     print("\n[2/3] 🔍 AI分類中...")
-    try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=5)
-        models = [m["name"] for m in resp.json().get("models", [])]
-        if not any(VISION_MODEL.split(":")[0] in m for m in models):
-            print(f"⚠️  Ollamaモデル '{VISION_MODEL}' がありません。分類をスキップします。")
-            return
-    except requests.ConnectionError:
-        print("⚠️  Ollama未起動。分類をスキップします。")
-        return
-
-    # 未分類の画像のみ分類
-    images = find_images(BASE_DIR)
     cache = load_cache()
-    unclassified = [img for img in images if str(img.relative_to(BASE_DIR)) not in cache
-                    or "category" not in cache.get(str(img.relative_to(BASE_DIR)), {})]
+    unclassified = [
+        img for img in find_images(BASE_DIR)
+        if "category" not in cache.get(get_cache_key(img), {})
+    ]
 
-    if unclassified:
+    if not unclassified:
+        print("  未分類の画像はありません。")
+    elif not _ollama_available():
+        print(f"⚠️  Ollama未起動 or モデル '{VISION_MODEL}' なし。分類をスキップします。")
+        print("     'ollama serve' を起動後に 'classify' を個別実行してください。")
+    else:
         print(f"  {len(unclassified)}枚の画像を分類中...\n")
         for i, img in enumerate(unclassified):
-            rel = str(img.relative_to(BASE_DIR))
+            rel = get_cache_key(img)
             print(f"  [{i + 1}/{len(unclassified)}] {img.name} ... ", end="", flush=True)
-
             try:
                 category = classify_image_with_ollama(img)
                 label = CATEGORY_LABELS.get(category, category)
                 print(f"→ {label}")
-
-                if rel not in cache:
-                    cache[rel] = {}
+                cache.setdefault(rel, {})
                 cache[rel]["category"] = category
                 cache[rel]["name"] = img.name
-
                 if (i + 1) % 10 == 0:
                     save_cache(cache)
             except Exception as e:
                 print(f"ERROR: {e}")
-
         save_cache(cache)
         print("\n✅ 分類完了！")
-    else:
-        print("  すべて分類済みです。")
 
-    # ステップ3: 整理
+    # ステップ3: 整理（Ollama不要 — 分類済みなら常に実行）
     print("\n[3/3] 📁 フォルダ整理中...")
-
     classified = {k: v for k, v in cache.items() if "category" in v}
     moves = []
     for rel_path, info in classified.items():
         src = BASE_DIR / rel_path
         if not src.exists():
             continue
-
         category = info["category"]
-        parent_name = src.parent.name
-        if parent_name == category:
+        if src.parent.name == category:
             continue
-
         dest_dir = BASE_DIR / category
         dest = dest_dir / src.name
-
         if dest.exists():
-            stem = dest.stem
-            suffix = dest.suffix
+            stem, suffix = dest.stem, dest.suffix
             counter = 1
             while dest.exists():
                 dest = dest_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
-
         moves.append((src, dest, category))
 
     if moves:
@@ -742,7 +742,6 @@ def cmd_auto(args):
                     cache[new_rel] = cache.pop(old_rel)
             except Exception as e:
                 print(f"  [ERROR] {src.name}: {e}")
-
         save_cache(cache)
         print(f"✅ {len(moves)}ファイルを整理しました。")
     else:
@@ -925,16 +924,16 @@ JSON:"""
             resp.raise_for_status()
             raw = resp.json()["response"].strip()
 
-            # JSON部分を抽出
             import re
-            match = re.search(r'\{[^}]+\}', raw)
+            match = re.search(r'\{.*?\}', raw, re.DOTALL)
+            result = {}
             if match:
-                result = json.loads(match.group())
-                keep = bool(result.get("keep", True))
-                reason = str(result.get("reason", ""))
-            else:
-                keep = True
-                reason = ""
+                try:
+                    result = json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+            keep = bool(result.get("keep", True))
+            reason = str(result.get("reason", ""))
 
             status = "OK" if keep else f"NG: {reason}"
             print(status)
@@ -954,7 +953,53 @@ JSON:"""
 
     save_cache(cache)
     print(f"\n品質チェック完了！ {flagged}/{len(images)} 枚が不要と判定されました。")
-    print("Web UIの「クリーンアップ」ページで確認・削除できます。")
+    if flagged:
+        print("'python imgtools.py purge --dry-run' で削除対象を確認できます。")
+
+
+def cmd_purge(args):
+    """quality で不要判定された画像を削除"""
+    cache = load_cache()
+    targets = [
+        (BASE_DIR / rel, info)
+        for rel, info in cache.items()
+        if not info.get("quality_ok", True)
+    ]
+    targets = [(p, info) for p, info in targets if p.exists()]
+
+    if not targets:
+        print("\n削除対象がありません（quality コマンドを先に実行してください）。")
+        return
+
+    print(f"\n{'=' * 50}")
+    print(f"  Purge Plan: {len(targets)} files")
+    print(f"{'=' * 50}\n")
+    for path, info in targets:
+        reason = info.get("quality_reason", "")
+        print(f"  🗑  {path.relative_to(BASE_DIR)}  [{reason}]")
+
+    if args.dry_run:
+        print("\n[DRY RUN] 実際の削除は行いません。")
+        print("実行するには: python imgtools.py purge")
+        return
+
+    confirm = input(f"\n{len(targets)} 枚を完全削除しますか? (y/N): ").strip().lower()
+    if confirm != "y":
+        print("キャンセルしました。")
+        return
+
+    deleted = 0
+    for path, _ in targets:
+        try:
+            rel = str(path.relative_to(BASE_DIR))
+            path.unlink()
+            cache.pop(rel, None)
+            deleted += 1
+        except Exception as e:
+            print(f"  [ERROR] {path.name}: {e}")
+
+    save_cache(cache)
+    print(f"\n✅ {deleted} 枚を削除しました。")
 
 
 def cmd_upscale(args):
@@ -1886,6 +1931,10 @@ def main():
     p_quality.add_argument("--include-download", action="store_true",
                            help=f"~/dev/download と ~/Downloads も対象にする")
 
+    # purge コマンド
+    p_purge = sub.add_parser("purge", help="quality で不要判定された画像を削除")
+    p_purge.add_argument("--dry-run", action="store_true", help="プレビューのみ（削除しない）")
+
     # analyze コマンド
     sub.add_parser("analyze", help="AI一括処理: 分類 → 品質チェック → キャプション → ベクトル化")
 
@@ -1983,6 +2032,7 @@ def main():
         "search": cmd_search,
         "similar": cmd_similar,
         "suggest": cmd_suggest,
+        "purge": cmd_purge,
     }
 
     commands[args.command](args)

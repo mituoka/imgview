@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import Image from "next/image";
-import { useEffect, useState, useCallback, DragEvent } from "react";
+import { useState, DragEvent } from "react";
 import { FolderInfo } from "@/types";
 import RunImgtoolsPanel from "@/components/RunImgtoolsPanel";
 
@@ -16,53 +15,9 @@ type Props = {
   currentFolder: string | null;
   onImageMoved?: () => void;
   onSuggestMoves?: (folder: string) => void;
+  onCleanup?: () => void;
 };
 
-function WatcherButton({ onRefresh }: { onRefresh: () => void }) {
-  const [running, setRunning] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  const fetchStatus = useCallback(() => {
-    fetch("/api/watcher")
-      .then((r) => r.json())
-      .then((d) => setRunning(d.running))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    fetchStatus();
-    const id = setInterval(fetchStatus, 10000);
-    return () => clearInterval(id);
-  }, [fetchStatus]);
-
-  const toggle = async () => {
-    setLoading(true);
-    await fetch("/api/watcher", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: running ? "stop" : "start" }),
-    });
-    await new Promise((r) => setTimeout(r, 600));
-    fetchStatus();
-    if (!running) onRefresh();
-  };
-
-  return (
-    <button
-      onClick={toggle}
-      disabled={loading}
-      className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors disabled:opacity-50 ${
-        running
-          ? "text-green-400 hover:bg-gray-800"
-          : "text-gray-300 hover:bg-gray-800 hover:text-gray-100"
-      }`}
-    >
-      {running && <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse flex-shrink-0" />}
-      <span>{running ? "監視中..." : "自動取り込み"}</span>
-    </button>
-  );
-}
 
 export default function Sidebar({
   folders,
@@ -74,6 +29,7 @@ export default function Sidebar({
   currentFolder,
   onImageMoved,
   onSuggestMoves,
+  onCleanup,
 }: Props) {
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 
@@ -169,14 +125,7 @@ export default function Sidebar({
       </nav>
 
       <div className="p-2 pb-10 border-t border-gray-800 space-y-1">
-        <WatcherButton onRefresh={onRefresh} />
-        <Link
-          href="/cleanup"
-          className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors"
-        >
-          クリーンアップ
-        </Link>
-        <RunImgtoolsPanel onComplete={onRefresh} currentFolder={currentFolder} folders={folders} onSuggestMoves={onSuggestMoves} />
+        <RunImgtoolsPanel onComplete={onRefresh} currentFolder={currentFolder} folders={folders} onSuggestMoves={onSuggestMoves} onCleanup={onCleanup} />
       </div>
     </aside>
   );

@@ -9,6 +9,7 @@ import Toolbar, { OrientationFilter, SortOption } from "@/components/Toolbar";
 import ImageEditor from "@/components/ImageEditor";
 import FolderDropOverlay from "@/components/FolderDropOverlay";
 import SuggestMovesModal from "@/components/SuggestMovesModal";
+import CleanupModal from "@/components/CleanupModal";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -55,6 +56,9 @@ export default function Home() {
 
   // 移動提案モーダル
   const [suggestFolder, setSuggestFolder] = useState<string | null>(null);
+
+  // クリーンアップモーダル
+  const [cleanupOpen, setCleanupOpen] = useState(false);
 
   // AI 検索状態
   const [aiSearching, setAiSearching] = useState(false);
@@ -337,6 +341,7 @@ export default function Home() {
         currentFolder={selectedFolder}
         onImageMoved={handleRefresh}
         onSuggestMoves={setSuggestFolder}
+        onCleanup={() => setCleanupOpen(true)}
       />
 
       <main className="flex-1 overflow-y-auto">
@@ -435,6 +440,13 @@ export default function Home() {
           apiBase={API_BASE}
           onClose={() => setSuggestFolder(null)}
           onMoved={handleRefresh}
+        />
+      )}
+
+      {cleanupOpen && (
+        <CleanupModal
+          onClose={() => setCleanupOpen(false)}
+          onDeleted={handleRefresh}
         />
       )}
 

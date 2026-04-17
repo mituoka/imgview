@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { FolderInfo } from "@/types";
 
 type Command = "scan" | "analyze" | "auto" | "upscale" | "tag" | "suggest";
@@ -8,16 +9,16 @@ type Status = "idle" | "running" | "done" | "error";
 
 type Section = {
   label: string;
-  commands: { id: Command; label: string; desc: string }[];
+  commands: { id: Command | "_cleanup"; label: string; desc: string }[];
 };
 
 const SECTIONS: Section[] = [
   {
     label: "ライブラリ",
     commands: [
-      { id: "scan",    label: "スキャン",    desc: "画像の統計・概要を表示" },
-      { id: "auto",    label: "全自動更新",  desc: "移動 → 分類 → フォルダ整理" },
-      { id: "suggest", label: "誤分類チェック", desc: "現在のフォルダの誤分類を検出・移動提案" },
+      { id: "scan",    label: "スキャン",       desc: "画像の統計・概要を表示" },
+      { id: "auto",    label: "全自動更新",      desc: "移動 → 分類 → フォルダ整理" },
+      { id: "suggest", label: "誤分類チェック",  desc: "現在のフォルダの誤分類を検出・移動提案" },
     ],
   },
   {
@@ -30,7 +31,13 @@ const SECTIONS: Section[] = [
   {
     label: "編集",
     commands: [
-      { id: "upscale", label: "高画質化", desc: "Upscaylで画像をアップスケール" },
+      { id: "upscale",   label: "高画質化",       desc: "Upscaylで画像をアップスケール" },
+    ],
+  },
+  {
+    label: "クリーンアップ",
+    commands: [
+      { id: "_cleanup", label: "クリーンアップ", desc: "重複検出・AI品質チェック・削除" },
     ],
   },
 ];
@@ -50,9 +57,10 @@ type Props = {
   currentFolder?: string | null;
   folders?: FolderInfo[];
   onSuggestMoves?: (folder: string) => void;
+  onCleanup?: () => void;
 };
 
-export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = [], onSuggestMoves }: Props) {
+export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = [], onSuggestMoves, onCleanup }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
   const [status, setStatus] = useState<Status>("idle");
@@ -159,6 +167,15 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = 
           <span>imgtools 実行</span>
         </button>
 
+        <Link
+          href="/help"
+          target="_blank"
+          className="px-2 py-1.5 rounded text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+          title="コマンド説明"
+        >
+          ?
+        </Link>
+
         {status !== "idle" && (
           <button
             onClick={() => setLogOpen((v) => !v)}
@@ -178,28 +195,30 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = 
         <div className="absolute bottom-full left-0 right-0 mb-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl overflow-hidden z-20">
           {SECTIONS.map((section, si) => (
             <div key={section.label}>
-              {si > 0 && <div className="border-t border-gray-600" />}
-              <div className="px-3 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+              {si > 0 && <div className="border-t border-gray-700 mx-2" />}
+              <div className="px-3 pt-2 pb-0.5 text-[10px] text-gray-500 uppercase tracking-wider">
                 {section.label}
               </div>
               {section.commands.map((cmd) => (
                 <button
                   key={cmd.id}
                   onClick={() => {
-                    if (cmd.id === "upscale") {
+                    if (cmd.id === "_cleanup") {
+                      setMenuOpen(false);
+                      onCleanup?.();
+                    } else if (cmd.id === "upscale") {
                       setMenuOpen(false);
                       setUpscaleOpen(true);
                     } else if (cmd.id === "suggest") {
                       setMenuOpen(false);
                       initSuggest();
                     } else {
-                      run(cmd.id);
+                      run(cmd.id as Command);
                     }
                   }}
-                  className="w-full flex flex-col items-start px-3 py-2 hover:bg-gray-700 transition-colors"
+                  className="w-full text-left px-3 py-1.5 text-sm text-gray-200 hover:bg-gray-700 hover:text-white transition-colors"
                 >
-                  <span className="text-sm font-medium text-gray-100">{cmd.label}</span>
-                  <span className="text-xs text-gray-400 mt-0.5">{cmd.desc}</span>
+                  {cmd.label}
                 </button>
               ))}
             </div>
