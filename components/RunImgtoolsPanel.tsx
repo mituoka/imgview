@@ -164,7 +164,7 @@ export default function RunImgtoolsPanel({ onComplete, currentFolder, folders = 
           disabled={status === "running"}
           className="flex-1 flex items-center gap-2 px-3 py-2 rounded text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <span>imgtools 実行</span>
+          <span>ツール実行</span>
         </button>
 
         <Link
