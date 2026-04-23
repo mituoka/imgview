@@ -408,7 +408,7 @@ export default function Lightbox({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-black/95"
+      className="fixed inset-0 z-50 flex flex-col bg-black/95 lightbox-enter"
       onClick={isZoomed ? undefined : onClose}
     >
       {/* Top bar */}

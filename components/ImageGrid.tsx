@@ -123,7 +123,7 @@ function Thumbnail({
         onDragStartNotify?.();
       }}
       onDragEnd={() => { setIsDragging(false); onDragEndNotify?.(); }}
-      className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none transition-opacity ${
+      className={`relative bg-gray-800 overflow-hidden group cursor-pointer outline-none transition-opacity thumb-glitch ${
         isDragging ? "opacity-50" : "opacity-100"
       } ${
         selectMode && selected
@@ -143,9 +143,10 @@ function Thumbnail({
             loading={priority ? "eager" : "lazy"}
             decoding="async"
             fetchPriority={priority ? "high" : "low"}
-            className={`w-full h-auto block transition-opacity duration-300 group-hover:scale-105 ${
-              loaded ? "opacity-100" : "opacity-0 absolute inset-0"
+            className={`w-full h-auto block transition-transform duration-300 group-hover:scale-105 ${
+              loaded ? `opacity-100 thumb-enter` : "opacity-0 absolute inset-0"
             } ${selectMode && selected ? "opacity-70" : ""}`}
+            style={loaded ? { animationDelay: `${(index % 10) * 0.04}s` } : undefined}
             onLoad={(e) => {
               setLoaded(true);
               const el = e.currentTarget;
